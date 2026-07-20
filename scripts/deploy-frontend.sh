@@ -28,6 +28,7 @@ VITE_API_BASE_URL="$VITE_API_BASE_URL" bun run build
 
 echo "==> 上傳 hashed assets (長快取 immutable)"
 aws s3 sync dist/assets "s3://$FRONTEND_S3_BUCKET/assets" \
+  --exclude "*.map" \
   --cache-control "public,max-age=31536000,immutable"
 
 echo "==> 上傳其餘檔案 (index.html 等,no-cache;--delete 清掉已移除的檔案)"
