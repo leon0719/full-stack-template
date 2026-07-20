@@ -46,7 +46,7 @@ check-backend:
 	$(MAKE) -C backend test-local
 
 check-frontend:
-	cd frontend && bun run lint && bun run lint:fsd && bun run type-check && bun run test
+	cd frontend && bun run lint:ci && bun run lint:fsd && bun run type-check && bun run test
 
 check: check-backend check-frontend
 
