@@ -20,9 +20,9 @@ check（ruff/mypy/pytest、biome/tsc/vitest）全綠；頂層 CI 兩個 job 可�
 |------|------|
 | 整合結構 | Monorepo 子目錄（`backend/` + `frontend/`），各自完整複製，頂層加整合層 |
 | 前後端串接 | 實作真實 `djangoAuthAdapter` 呼叫後端 `/auth/*`，開箱即可登入 |
-| 開發模式 | 前端本機 `bun run dev` + Vite proxy，後端 Docker `make up` |
+| 開發模式 | 前端本機 `bun run dev` 直連後端（後端 CORS dev 預設已允許 5173），後端 Docker `make up` |
 | Prod 前端 | S3 + CloudFront；模板附部署腳本 + 文件（不含 IaC） |
-| Prod 後端 | 沿用既有 `docker-compose.prod.yml`，不動 |
+| Prod 後端 | 沿用既有 `docker-compose.prod.yml`（含 Cloudflare Tunnel 對外），不動 |
 | 文件 | 「怎麼開發」與「怎麼部署」必須寫清楚（使用者明確要求，見文件章節） |
 
 ## 1. 目錄結構
@@ -75,52 +75,63 @@ full-stack-template/
 ## 3. 開發流程（dev）
 
 - 後端：`make up`，API 在 `http://localhost:8000`。
-- 前端：本機 `bun run dev`；`vite.config.ts` 加 dev proxy 將 API 路徑轉發到
-  `http://localhost:8000`，前端以同源相對路徑呼叫 API，**開發時不需 CORS**。
-- `.env.example` 給好可直接跑的預設值。
-- 後端不預裝 `django-cors-headers`；若要跨網域直連（含 prod），依部署文件
-  步驟加裝設定。
+- 前端：本機 `bun run dev`，設 `VITE_API_BASE_URL=http://localhost:8000`
+  **直連**後端——後端已內建 `django-cors-headers`，dev 預設允許
+  `localhost:5173`，不需 Vite proxy。dev/prod 同為跨源拓撲，行為一致。
+- `frontend/.env.example` 給好可直接跑的預設值（`VITE_API_BASE_URL=http://localhost:8000`）。
 
 ## 4. Prod 部署
 
-- 後端：沿用 `backend/docker/docker-compose.prod.yml`，TLS 由前面的
-  reverse proxy 終結，維持原模板設計，不動。
+- 後端：沿用 `backend/docker/docker-compose.prod.yml`——對外經內建的
+  Cloudflare Tunnel（`cloudflared` service），部署步驟依
+  `backend/docs/deployment.md` 與 `backend/docs/cloudflare-tunnel.md`，不動。
 - 前端：S3 + CloudFront。
   - `scripts/deploy-frontend.sh`：`bun run build` →
     `aws s3 sync dist/`（`assets/*` 長快取 immutable、`index.html` no-cache）→
     `aws cloudfront create-invalidation`。
   - Bucket 名稱、Distribution ID、`VITE_API_BASE_URL` 由環境變數提供，
     腳本開頭檢查缺漏並給出清楚錯誤訊息。
-  - Prod 前後端不同源：後端需開 CORS（部署文件寫明安裝
-    `django-cors-headers` 與設定步驟）。
+- 前後端串接（prod）：後端 `.env.prod` 的 `CORS_ALLOWED_ORIGINS` 填
+  CloudFront/自訂網域的前端 origin（後端已內建 CORS 且 prod fail-fast
+  強制設定）；前端 build 時 `VITE_API_BASE_URL` 填 API 對外網域
+  （即 Tunnel 的 `api.your-domain.com`）。
 
 ## 5. 文件（使用者明確要求：開發與部署要寫清楚）
 
 兩份指南是本次整合的一級交付物，不是附註。
 
-### `docs/development.md` — 開發指南
+後端已有完整文件（`backend/docs/deployment.md`、`backend/docs/cloudflare-tunnel.md`、
+`backend/docs/local-development.md`）——頂層文件**不重寫這些內容**，只負責
+全端整合層：把兩邊接起來的流程、順序與串接設定，細節連結到子模板文件。
+
+### `docs/development.md` — 開發指南（整合層）
 
 - 前置需求：Docker（colima）、uv、bun 的安裝與版本。
-- 首次啟動：clone → 後端 `.env.local` 設定 → `make up` → 前端 `bun install` →
-  `bun run dev` → 開瀏覽器登入驗證，逐步指令可直接複製貼上。
-- 日常開發：前後端各自的常用指令對照表（migrate、test、lint、logs…）、
-  頂層 Makefile 對照。
-- 串接說明：Vite proxy 如何運作、`VITE_API_BASE_URL` 何時需要設、
-  auth adapter 在哪裡、如何加新的 API 呼叫（前端 `shared/api` +
-  後端 add-resource 流程各指向子模板文件）。
-- 疑難排解：port 衝突、Docker 未啟動、migration 未跑等常見狀況。
+- 首次啟動（逐步、可直接複製貼上）：clone → 後端 `.env.local` 設定 →
+  `make up` → 前端 `bun install` + `.env` 設定 → `bun run dev` →
+  開瀏覽器 register/login 驗證串接成功。
+- 日常開發：頂層 Makefile 指令對照表；前後端各自的深入指令連結到
+  `backend/docs/local-development.md` 與 `frontend/CLAUDE.md`。
+- 串接說明：dev 為跨源直連（後端 CORS dev 預設允許 5173）、
+  `VITE_API_BASE_URL` 的角色、auth adapter 位置、如何新增一條
+  「後端 endpoint + 前端呼叫」的完整路徑（各指向子模板的 scaffold 流程）。
+- 疑難排解：port 衝突、Docker 未啟動、CORS 錯誤、migration 未跑等常見狀況。
 
-### `docs/deployment.md` — 部署指南
+### `docs/deployment.md` — 部署指南（整合層）
 
-- 架構總覽圖：CloudFront + S3（前端）/ reverse proxy + Docker（後端）。
-- 後端部署：`.env.prod` 必填項、`docker-compose.prod.yml` 啟動步驟、
-  reverse proxy 需設定的項目（`FORWARDED_ALLOW_IPS`、`CSRF_TRUSTED_ORIGINS`）。
+- 架構總覽圖：CloudFront + S3（前端）／ Cloudflare Tunnel + Docker（後端）
+  ／外部 PostgreSQL、Redis。
+- 後端部署：指向 `backend/docs/deployment.md` 全流程；頂層只列
+  與前端串接相關的變數（`CORS_ALLOWED_ORIGINS`＝前端 origin、
+  `ALLOWED_HOSTS`／`CSRF_TRUSTED_ORIGINS`＝API 網域）。
 - 前端部署：
   - AWS 一次性設定：S3 bucket（不開公開存取）、CloudFront distribution +
     OAC、SPA fallback（403/404 → `/index.html`）、自訂網域與憑證要點。
-  - 每次部署：需要的環境變數、執行 `make deploy-frontend`、驗證步驟。
-- CORS 設定：prod 前後端不同源時，後端加 `django-cors-headers` 的完整步驟。
-- 檢核清單：上線前逐項確認（env vars、migrate、CORS、cache 行為）。
+  - 每次部署：需要的環境變數（含 `VITE_API_BASE_URL`＝API 對外網域）、
+    執行 `make deploy-frontend`、驗證步驟。
+- 部署順序與檢核清單：先後端（Tunnel 通、`/health/live` 200）→ 再前端
+  （build 帶正確 API URL、S3 sync、invalidation）→ 端對端驗證
+  （register/login 流程、CORS 無錯誤）。
 
 ## 6. 測試與驗收
 
