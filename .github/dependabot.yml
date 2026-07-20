@@ -1,0 +1,37 @@
+version: 2
+updates:
+  # 後端 Python 依賴（uv 讀 pyproject.toml + uv.lock）
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  # 頂層 .github/workflows/*.yml 用到的 Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # backend/docker/Dockerfile* 的 base image
+  - package-ecosystem: "docker"
+    directory: "/backend/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # backend/docker/docker-compose.*.yml 引用的 image（如 cloudflared）
+  - package-ecosystem: "docker-compose"
+    directory: "/backend/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
