@@ -89,4 +89,4 @@ make dev
 | 登入回 429 | `/auth/login`、`/auth/register` 有 per-IP 節流，稍候再試 |
 | API 回 500：relation does not exist | 忘了 `make migrate` |
 | 前端顯示已登出（token 失效） | 後端 `make down -v` / token 過期屬正常；重新登入即可 |
-| `make check-backend` / `test-local` 資料庫連不上 | `backend/.env.local` 是給容器內用的（`db`/`redis` 主機名）；host 端跑測試請把 `DATABASE_URL` 改為 `postgresql://app:app@localhost:5433/app`（Redis 同理改 `localhost`），或直接刪掉 `.env.local` 讓 Makefile 用內建 dummy 值 + SQLite |
+| `make check-backend` / `test-local` 資料庫連不上 | `backend/.env.local` 是給容器內用的（`db`/`redis` 主機名）；host 端跑測試請把 `DATABASE_URL` 改為 `postgresql://app:app@localhost:5433/app`（Redis 同理改 `localhost`），或刪掉 `.env.local` 後以 `DATABASE_URL="sqlite://:memory:" make -C backend test-local` 跑記憶體 SQLite（CI 即如此） |
