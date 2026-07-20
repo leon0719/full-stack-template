@@ -1,0 +1,62 @@
+# Python
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files
+.env
+.env.*
+!.env.*.example
+
+# Django
+django.mo
+django.log*
+media/
+staticfiles/
+
+# Database
+*.sqlite3
+data/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Testing
+.coverage
+.coverage.*
+coverage/
+.pytest_cache/
+htmlcov/
+
+# Type checking
+.mypy_cache/
+.ruff_cache/
+
+# uv
+.uv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+*.swp
+*~
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Git Worktrees
+.worktrees/

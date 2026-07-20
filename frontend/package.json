@@ -1,0 +1,62 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "format": "biome check --write ./src",
+    "lint": "biome lint ./src",
+    "lint:ci": "biome ci ./src",
+    "lint:fsd": "steiger ./src",
+    "prepare": "simple-git-hooks",
+    "type-check": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "bun run lint && bun run type-check"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.4.0",
+    "@tailwindcss/vite": "^4.3.1",
+    "@tanstack/react-query": "^5.101.1",
+    "@tanstack/react-router": "^1.170.16",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "i18next": "^26.3.3",
+    "i18next-browser-languagedetector": "^8.2.1",
+    "lucide-react": "^1.21.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-hook-form": "^7.80.0",
+    "react-i18next": "^17.0.8",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.1",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@biomejs/biome": "^2.5.1",
+    "@feature-sliced/steiger-plugin": "^0.6.0",
+    "@rolldown/plugin-babel": "^0.2.3",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/babel__core": "^7.20.5",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "jsdom": "^29.1.1",
+    "simple-git-hooks": "^2.13.1",
+    "steiger": "^0.5.13",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.0",
+    "vitest": "^4.1.9"
+  }
+}

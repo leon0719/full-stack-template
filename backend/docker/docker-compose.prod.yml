@@ -1,0 +1,165 @@
+# Cap container log growth — prod logs are JSON on stderr and would otherwise
+# fill the disk. Ship them to a collector if you need retention.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Shared by every service: same image build + same env file. Compose builds the
+# image once and reuses it across services. Secrets come from .env.prod
+# (chmod 600) — note they are visible via `docker inspect` to anyone with access
+# to the Docker daemon; acceptable on a single-host deploy you fully control.
+x-app-base: &app-base
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+    args:
+      GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
+  env_file:
+    - ../.env.prod
+
+services:
+  # One-off job: apply migrations before anything serves traffic. api/worker/beat
+  # wait for this to finish successfully (single job → no concurrent-migrate race).
+  migrate:
+    <<: *app-base
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+    networks:
+      - app
+
+  api:
+    <<: *app-base
+    # Public traffic arrives via cloudflared → api:8000 over the compose network
+    # and never touches this port mapping. The loopback bind exists for local
+    # smoke tests (curl 127.0.0.1:8000) or for fronting uvicorn with your own
+    # same-host reverse proxy instead of the tunnel. Never bind 0.0.0.0 — anyone
+    # reaching uvicorn directly could spoof X-Forwarded-* (see
+    # FORWARDED_ALLOW_IPS in .env.prod.example).
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - UVICORN_HOST=0.0.0.0
+    restart: unless-stopped
+    # uvicorn's graceful-shutdown window is 30s (uvicorn_run.py); Docker's
+    # default stop timeout is only 10s and would SIGKILL mid-drain.
+    stop_grace_period: 35s
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/live', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - app
+    # Resource limits (uncomment and tune per host). Docker Compose v2 honors
+    # deploy.resources.limits outside swarm mode; no defaults are forced here.
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "2.0"
+    #       memory: 1g
+
+  celery-worker:
+    <<: *app-base
+    restart: unless-stopped
+    # Give in-flight tasks a chance to finish on warm shutdown. A task killed
+    # past this window is safely re-delivered (acks_late + idempotent tasks).
+    stop_grace_period: 60s
+    logging: *default-logging
+    # Concurrency is env-tunable (mirrors the API's WEB_CONCURRENCY). Compose
+    # substitutes ${CELERY_CONCURRENCY} from .env.prod / the shell, defaulting to 4.
+    command: >
+      celery -A config worker
+      --loglevel=info
+      --concurrency=${CELERY_CONCURRENCY:-4}
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$${HOSTNAME} || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Workers only need the schema migrated — not a healthy API. Tying them to
+    # the API would keep workers down whenever the API is unhealthy.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - app
+    # Resource limits (uncomment and tune per host). Docker Compose v2 honors
+    # deploy.resources.limits outside swarm mode; no defaults are forced here.
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "2.0"
+    #       memory: 1g
+
+  celery-beat:
+    <<: *app-base
+    restart: unless-stopped
+    logging: *default-logging
+    # --pidfile lets the healthcheck verify the beat process is actually alive
+    # (`celery inspect ping` only works for workers, not beat).
+    command: >
+      celery -A config beat
+      --loglevel=info
+      --scheduler django_celery_beat.schedulers:DatabaseScheduler
+      --pidfile=/tmp/beat.pid
+    healthcheck:
+      # Healthy = pidfile exists AND the recorded PID is a live process
+      # (kill -0 sends no signal, only checks existence).
+      test: ["CMD-SHELL", "test -f /tmp/beat.pid && kill -0 $$(cat /tmp/beat.pid)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - app
+    # Resource limits (uncomment and tune per host). Docker Compose v2 honors
+    # deploy.resources.limits outside swarm mode; no defaults are forced here.
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "1.0"
+    #       memory: 512m
+
+  # Cloudflare Tunnel：對外流量走 Cloudflare edge → cloudflared（由容器主動向外
+  # 連線）→ http://api:8000（compose 內部網路），主機完全不需開放 80/443/8000。
+  # TLS 在 Cloudflare edge 終止，X-Forwarded-For/Proto 由 edge 設好帶進來。
+  # 設定步驟（含 Cloudflare dashboard 端）見 docs/cloudflare-tunnel.md。
+  # 不使用 Cloudflare Tunnel（改自架 nginx/Caddy 反代）時，刪除本 service 即可。
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.2@sha256:4f6655284ab3d252b7f28fedb19fe6c8fc82ee5b1295c20ac74d475e5398a52d
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      # 由 compose 變數替換注入（Makefile 以 --env-file .env.prod 載入本檔案外的
+      # 環境）；留空時 cloudflared 會啟動失敗並在 logs 說明，不影響其他服務。
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
+    logging: *default-logging
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - app
+
+# 生產環境注意事項：
+# 1. 資料庫和 Redis 應使用外部服務 (RDS, ElastiCache, Cloud SQL 等)
+# 2. 在 .env.prod 中設定正確的 SECRET_KEY、DATABASE_URL、CELERY_BROKER_URL 與
+#    CACHE_URL，並 `chmod 600 .env.prod`
+# 3. 對外連線由內建的 cloudflared (Cloudflare Tunnel) 處理，見
+#    docs/cloudflare-tunnel.md；改用自架 nginx/LB 時刪除 cloudflared service，
+#    並同步調整 FORWARDED_ALLOW_IPS 與 NINJA_NUM_PROXIES（見 .env.prod.example）
+# 4. 確保 ALLOWED_HOSTS 設定正確的域名
+
+networks:
+  app:
+    driver: bridge

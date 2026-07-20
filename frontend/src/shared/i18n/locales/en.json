@@ -1,0 +1,51 @@
+{
+  "common": {
+    "appName": "App",
+    "logout": "Logout",
+    "forbidden": "403 — You don't have permission to access this page",
+    "error": {
+      "title": "Something went wrong",
+      "description": "Please refresh the page or try again later.",
+      "retry": "Retry"
+    },
+    "notFound": {
+      "title": "404 — Page not found",
+      "description": "The page you are looking for does not exist. Please check the URL."
+    }
+  },
+  "auth": {
+    "login": {
+      "title": "Login",
+      "username": "Username",
+      "password": "Password",
+      "submit": "Login",
+      "usernameRequired": "Username is required",
+      "passwordRequired": "Password is required",
+      "failed": "Incorrect username or password"
+    }
+  },
+  "pages": {
+    "home": {
+      "title": "React FSD Template",
+      "subtitle": "Vite + React 19 + TanStack + Tailwind, FSD pages-first architecture.",
+      "toDemo": "Go to Demo"
+    },
+    "demo": {
+      "title": "Demo: TanStack Query",
+      "loading": "Loading…",
+      "error": "Failed to load",
+      "form": {
+        "title": "Zustand · React Hook Form · Zod demo",
+        "nameLabel": "Your name",
+        "namePlaceholder": "Enter at least 2 characters",
+        "nameMin": "At least 2 characters",
+        "submit": "Submit",
+        "greeting": "Hello, {{name}}"
+      }
+    },
+    "admin": {
+      "title": "Admin Area",
+      "body": "Only users with the admin role can see this page."
+    }
+  }
+}

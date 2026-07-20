@@ -1,0 +1,59 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv
+ENV
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Testing (keep test code out of the runtime image — smaller, smaller surface)
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+**/tests.py
+**/tests/
+conftest.py
+
+# Environment files (will be mounted or set via env vars)
+.env
+.env.*
+
+# Docker
+docker-compose*.yml
+
+# Documentation
+*.md
+
+# Logs
+*.log
+
+# Database
+*.sqlite3
+db.sqlite3
+data
+
+# Static files (will be collected during build)
+staticfiles
+
+# macOS
+.DS_Store
+
+# Editor
+*~
+
+# Claude
+.claude

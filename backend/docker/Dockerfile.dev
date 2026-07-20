@@ -1,0 +1,24 @@
+# Digest-pinned to match docker/Dockerfile (reproducible builds).
+FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1
+
+WORKDIR /app
+
+# UV_LINK_MODE=copy: required for the build cache mount (hardlinks can't cross
+# the mount boundary); compose also sets it at runtime for the volume-mounted venv.
+ENV PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.9@sha256:538e0b39736e7feae937a65983e49d2ab75e1559d35041f9878b7b7e51de91e4 /uv /usr/local/bin/uv
+
+# --frozen only: failing loudly on lockfile drift beats silently re-resolving.
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen
+
+EXPOSE 8000
+CMD ["uv", "run", "python", "uvicorn_run.py"]

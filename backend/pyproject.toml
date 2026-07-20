@@ -1,0 +1,116 @@
+[project]
+name = "django-ninja-project-tree"
+version = "0.1.0"
+description = "General Django Ninja project architecture"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "argon2-cffi>=23.1.0",
+    "dj-database-url>=3.1.2",
+    "django>=6.0.6",
+    "django-cors-headers>=4.9.0",
+    "django-ninja>=1.6.2",
+    "loguru>=0.7.3",
+    "psycopg[binary,pool]>=3.3.4",
+    "pydantic-settings>=2.14.2",
+    "redis>=6.4.0,<7",
+    "tenacity>=9.1.4",
+    "uvicorn[standard]>=0.49.0",
+    "celery[redis]>=5.6.3",
+    "django-celery-beat>=2.9.0",
+    "orjson>=3.11.9",
+    "httpx>=0.28.1",
+    "sentry-sdk[django]>=2.52.0",
+    "email-validator>=2.2.0",
+    "whitenoise>=6.12.0",
+]
+
+[dependency-groups]
+dev = [
+    "django-stubs>=6.0.6",
+    "mypy>=2.1.0",
+    "pre-commit>=4.6.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "pytest-django>=4.12.0",
+    "ruff>=0.15.19",
+    "vulture>=2.14",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+# Django auto-generates migrations; don't lint generated code.
+extend-exclude = ["**/migrations/*.py"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "S",    # flake8-bandit (security)
+    "T20",  # flake8-print (no stray print)
+    "DTZ",  # flake8-datetimez (no naive datetime)
+    "BLE",  # flake8-blind-except
+    "DJ",   # flake8-django
+    "RUF",  # Ruff-specific rules
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may use assert and hardcoded test credentials.
+"**/tests.py" = ["S101", "S105", "S106"]
+"**/test_*.py" = ["S101", "S105", "S106"]
+"**/conftest.py" = ["S101", "S105", "S106"]
+# Boundary layers (HTTP views / Celery tasks) may catch-all and convert to 500 + log.
+# B008: Django Ninja uses Query()/Path()/Body() as parameter defaults by design.
+"**/views.py" = ["BLE001", "B008"]
+"**/tasks.py" = ["BLE001"]
+# RUF012: Django model Meta uses mutable class attrs (indexes/ordering) by design.
+"**/models.py" = ["RUF012"]
+# Dev/CLI scripts print to stdout by design.
+"scripts/*" = ["T20"]
+
+[tool.mypy]
+python_version = "3.14"
+plugins = ["mypy_django_plugin.main"]
+ignore_missing_imports = true
+check_untyped_defs = true
+strict_equality = true
+strict = false
+exclude = ["migrations/", "\\.venv/"]
+
+[tool.django-stubs]
+django_settings_module = "config.settings.local"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.local"
+pythonpath = ["."]
+python_files = ["tests.py", "test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+addopts = "--strict-markers"
+markers = [
+    "unit: Unit tests (no external services required)",
+    "integration: Integration tests (require DB/Redis/Celery)",
+    "slow: Slow tests (long timeouts, large data)",
+]
+
+[tool.vulture]
+# Dead-code detection (replaces the old custom AST script). Django/ninja call a
+# lot of code by name (view fns, model fields, signals), so keep confidence high
+# to limit false positives; lower it when hunting harder.
+paths = ["apps", "config"]
+min_confidence = 80
+# Tests carry framework-injected names (pytest fixtures, @patch mock args) that
+# aren't dead code; scan production code only.
+exclude = ["*/tests.py", "*/test_*.py"]
+# Framework contract names that are referenced by name, not by our code.
+ignore_names = ["response_status"]

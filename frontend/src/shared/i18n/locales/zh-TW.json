@@ -1,0 +1,51 @@
+{
+  "common": {
+    "appName": "App",
+    "logout": "登出",
+    "forbidden": "403 — 您沒有存取此頁面的權限",
+    "error": {
+      "title": "發生錯誤",
+      "description": "請重新整理頁面，或稍後再試。",
+      "retry": "重試"
+    },
+    "notFound": {
+      "title": "404 — 找不到頁面",
+      "description": "您要找的頁面不存在，請確認網址是否正確。"
+    }
+  },
+  "auth": {
+    "login": {
+      "title": "登入",
+      "username": "帳號",
+      "password": "密碼",
+      "submit": "登入",
+      "usernameRequired": "請輸入帳號",
+      "passwordRequired": "請輸入密碼",
+      "failed": "帳號或密碼錯誤"
+    }
+  },
+  "pages": {
+    "home": {
+      "title": "React FSD Template",
+      "subtitle": "Vite + React 19 + TanStack + Tailwind，採 FSD pages-first 架構。",
+      "toDemo": "前往 Demo 頁"
+    },
+    "demo": {
+      "title": "Demo：TanStack Query",
+      "loading": "載入中…",
+      "error": "載入失敗",
+      "form": {
+        "title": "Zustand · React Hook Form · Zod 示範",
+        "nameLabel": "你的名字",
+        "namePlaceholder": "輸入至少 2 個字",
+        "nameMin": "至少 2 個字",
+        "submit": "送出",
+        "greeting": "Hello, {{name}}"
+      }
+    },
+    "admin": {
+      "title": "Admin Area",
+      "body": "只有 admin 角色看得到這個頁面。"
+    }
+  }
+}

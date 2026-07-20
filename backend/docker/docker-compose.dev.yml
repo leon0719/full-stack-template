@@ -1,0 +1,110 @@
+# Shared by api/worker/beat: same dev image, live-mounted source, shared venv +
+# uv cache volumes, same env file.
+x-app-base: &app-base
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.dev
+  volumes:
+    - ..:/app
+    - api_venv:/app/.venv
+    # uv's download/wheel cache lives at ~/.cache/uv (XDG_CACHE_HOME), matching
+    # the build cache mount in Dockerfile.dev — persist that, not the data dir.
+    - uv_cache:/root/.cache/uv
+  env_file:
+    - ../.env.local
+  networks:
+    - app
+
+services:
+  api:
+    <<: *app-base
+    ports:
+      - "8000:8000"
+    environment:
+      - UV_LINK_MODE=copy
+      - UVICORN_HOST=0.0.0.0
+    # No collectstatic in dev — whitenoise serves via staticfiles finders when DEBUG=True.
+    command: >
+      sh -c "uv run python manage.py migrate --noinput &&
+             uv run python uvicorn_run.py"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/live', timeout=5).status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  db:
+    # Digest-pinned for reproducibility; dependabot (docker) bumps tag + digest.
+    image: postgres:18-alpine@sha256:1b1689b20d16a014a3d195653381cf2caa75a41a92d93b255a9d6ea29fd353aa
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - ../data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app
+
+  redis:
+    image: redis:8-alpine@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+    ports:
+      - "6379:6379"
+    volumes:
+      - ../data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app
+
+  celery-worker:
+    <<: *app-base
+    command: >
+      uv run celery -A config worker
+      --loglevel=info
+      --concurrency=2
+    # Workers need the DB schema + the broker, not a healthy API. Depending on
+    # the API (as before) kept workers down whenever the API was unhealthy, and
+    # diverged from prod (which only waits on the migrate job). See prod compose.
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-beat:
+    <<: *app-base
+    command: >
+      uv run celery -A config beat
+      --loglevel=info
+      --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    # Same rationale as celery-worker: depend on db + redis, not the API.
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  api_venv:
+  uv_cache:
+
+networks:
+  app:
+    driver: bridge
