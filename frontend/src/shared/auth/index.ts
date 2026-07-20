@@ -1,3 +1,4 @@
+export { djangoAuthAdapter } from "./adapter/django-adapter";
 export { fakeAuthAdapter } from "./adapter/fake-adapter";
 export { useAuth } from "./lib/use-auth";
 export { usePermission } from "./lib/use-permission";

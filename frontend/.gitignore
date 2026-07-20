@@ -27,3 +27,4 @@ docs/superpowers/
 # Env files (Vite)
 .env*
 !.env.example
+!.env.development
