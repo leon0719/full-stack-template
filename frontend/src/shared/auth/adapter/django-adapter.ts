@@ -30,7 +30,8 @@ async function fetchMe(token: string): Promise<User | null> {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (res.status === 401) return null;
-  if (!res.ok) throw new Error(await extractErrorMessage(res, `GET /auth/me failed with ${res.status}`));
+  if (!res.ok)
+    throw new Error(await extractErrorMessage(res, `GET /auth/me failed with ${res.status}`));
   return toUser((await res.json()) as MeResponse);
 }
 

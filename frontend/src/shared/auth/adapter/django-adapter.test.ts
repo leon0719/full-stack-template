@@ -48,7 +48,10 @@ afterEach(() => {
 
 describe("djangoAuthAdapter.login", () => {
   it("exchanges credentials for a token then loads the user profile", async () => {
-    const fetchMock = stubFetch({ status: 200, json: { token: "t-1" } }, { status: 200, json: ME_PAYLOAD });
+    const fetchMock = stubFetch(
+      { status: 200, json: { token: "t-1" } },
+      { status: 200, json: ME_PAYLOAD },
+    );
 
     const session = await djangoAuthAdapter.login({ username: "alice", password: "pw12345678" });
 
@@ -65,9 +68,9 @@ describe("djangoAuthAdapter.login", () => {
   it("throws on invalid credentials and does not persist a token", async () => {
     stubFetch({ status: 401, json: { detail: "Invalid credentials" } });
 
-    await expect(
-      djangoAuthAdapter.login({ username: "alice", password: "wrong" }),
-    ).rejects.toThrow("Invalid credentials");
+    await expect(djangoAuthAdapter.login({ username: "alice", password: "wrong" })).rejects.toThrow(
+      "Invalid credentials",
+    );
     expect(tokenStorage.get()).toBeNull();
   });
 });
