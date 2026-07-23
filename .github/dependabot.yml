@@ -29,7 +29,7 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
 
-  # backend/docker/docker-compose.*.yml 引用的 image（如 cloudflared）
+  # backend/docker/docker-compose.*.yml 引用的 image（如 caddy）
   - package-ecosystem: "docker-compose"
     directory: "/backend/docker"
     schedule:
