@@ -1,0 +1,33 @@
+# 對外入口，設計為跑在 Cloudflare 橘雲（proxied DNS）之後：
+#   訪客 ──HTTPS──▶ Cloudflare edge ──HTTPS──▶ Caddy ──▶ http://api:8000
+# 後半段用 tls internal（Caddy 自簽憑證）加密，搭配 Cloudflare SSL/TLS mode
+# 「Full」（非 strict——strict 需要 Origin CA 憑證，要更高保證時再升級）。
+# {$DOMAIN} 來自 .env.prod（compose 變數替換注入容器環境）。
+
+{
+	servers {
+		# 信任 Cloudflare 邊緣節點帶來的 X-Forwarded-For，真實 client IP 才會
+		# 一路傳到 api（per-IP 節流靠它；對應 .env.prod 的 NINJA_NUM_PROXIES=2）。
+		# 不在此清單的直連來源，其 X-Forwarded-* 會被 Caddy 剝除，無法偽造。
+		# 清單來源：https://www.cloudflare.com/ips/（極少變動，變了再同步）
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+	}
+}
+
+{$DOMAIN} {
+	# 自簽憑證：Cloudflare Full mode 只要求後半段有加密、不驗證憑證來源，
+	# 所以不需要 Let's Encrypt（也因此不需要 ACME 的 DNS/80 port 前置條件）。
+	tls internal
+
+	# /admin/ 沒有 rate limit（見 .env.prod.example 註記）。建議取消下面的
+	# 註解，把 client_ip 換成你的固定 IP/CIDR，只允許自己人進 admin。
+	# 注意要用 client_ip（經 trusted_proxies 解析出的真實來源）而不是
+	# remote_ip——橘雲之後 remote_ip 永遠是 Cloudflare edge 的 IP。
+	# @admin_blocked {
+	# 	path /admin/*
+	# 	not client_ip 203.0.113.0/24
+	# }
+	# respond @admin_blocked 403
+
+	reverse_proxy api:8000
+}

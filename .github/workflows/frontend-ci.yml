@@ -30,3 +30,48 @@ jobs:
       - run: bun run type-check
       - run: bun run test
       - run: bun run build
+
+  # CI 紅了但沒人知道,等同於沒有 CI。GitHub 預設只寄 email,通常沉在信箱裡。
+  # 只在 main 分支失敗時通知 —— PR 的紅燈作者自己看得到,不需要吵整個 channel。
+  notify:
+    if: failure() && github.ref == 'refs/heads/main'
+    needs: [checks]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack
+        # 本 job 不做 checkout,workflow 層級的 defaults.run.working-directory
+        # 指向的子目錄並不存在 —— 必須覆寫回 repo 根目錄。
+        working-directory: .
+        env:
+          WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::warning title=CI 失敗通知未啟用::未設定 SLACK_WEBHOOK_URL secret,這次的 CI 失敗沒有通知到 Slack。設定步驟見 backend/docs/alerting.md 第 5 節。"
+            exit 0
+          fi
+          curl -fsS -X POST "$WEBHOOK" \
+            -H 'Content-Type: application/json' \
+            -d @- <<JSON
+          {
+            "text": ":rotating_light: Frontend CI failed on \`main\` — ${{ github.repository }}",
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": ":rotating_light: *Frontend CI failed on \`main\`*\n*Repo:* ${{ github.repository }}\n*Commit:* \`${{ github.sha }}\`\n*Author:* ${{ github.actor }}"
+                }
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": { "type": "plain_text", "text": "查看 workflow run" },
+                    "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  }
+                ]
+              }
+            ]
+          }
+          JSON

@@ -1,4 +1,5 @@
 export { cn } from "./cn";
+export { initErrorTracking } from "./error-tracking";
 export { useZodForm } from "./form";
 export { queryClient } from "./query-client";
 export {

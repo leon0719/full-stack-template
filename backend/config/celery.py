@@ -9,6 +9,11 @@ app = Celery("django-ninja-project-tree")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
 
+# 匯入即註冊 task_failure / task_retry signal handler。必須在這裡做 ——
+# worker 與 beat 都會載入本模組,而 config.alerting 沒有其他匯入點,
+# 少了這行 signal 就永遠不會被接上(而且不會有任何報錯提示)。
+import config.alerting  # noqa: E402,F401
+
 
 @setup_logging.connect
 def _setup_logging(**_kwargs: object) -> None:

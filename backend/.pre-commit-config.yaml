@@ -23,6 +23,13 @@ repos:
       - id: django-upgrade
         args: [--target-version, "6.0"]
 
+  # 機密外洩的第一道防線。detect-private-key(下方)只認得 PEM 私鑰,
+  # 攔不到「.env 檔進版控」或高熵字串 —— 那正是 fastapi 模板 2026-07 的失效模式。
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:

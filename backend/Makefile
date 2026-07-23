@@ -6,7 +6,7 @@
 
 # Docker compose files
 COMPOSE_DEV = docker compose -f docker/docker-compose.dev.yml
-# --env-file 讓 compose 變數替換（${TUNNEL_TOKEN}、${CELERY_CONCURRENCY} 等）
+# --env-file 讓 compose 變數替換（${DOMAIN}、${CELERY_CONCURRENCY} 等）
 # 讀得到 .env.prod；檔案不存在時省略（例如 CI 只做 build）。
 COMPOSE_PROD = docker compose $(if $(wildcard .env.prod),--env-file .env.prod) -f docker/docker-compose.prod.yml
 

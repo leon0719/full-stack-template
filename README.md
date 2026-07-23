@@ -23,7 +23,7 @@ make dev                         # 前端: http://localhost:5173
 
 ## 部署
 
-- 後端：單機 Docker Compose + Cloudflare Tunnel
+- 後端：單機 Docker Compose + Cloudflare 橘雲 + 內建 Caddy 反向代理
 - 前端：S3 + CloudFront（`make deploy-frontend`）
 
 → **[docs/deployment.md](docs/deployment.md)**

@@ -5,7 +5,7 @@
 ```
 使用者 ──HTTPS──▶ CloudFront ──OAC──▶ S3（前端靜態檔）
    │
-   └────HTTPS──▶ Cloudflare edge ──tunnel──▶ cloudflared ─▶ api（Docker）
+   └────HTTPS──▶ Cloudflare 橘雲 ──HTTPS──▶ caddy (443) ─▶ api（Docker）
                                                 │
                                         外部 PostgreSQL / Redis
                                                 ▲
@@ -13,12 +13,13 @@
 ```
 
 - 前端：Vite build 出的靜態檔放 S3，CloudFront 分發。
-- 後端：單機 Docker Compose，對外經內建 Cloudflare Tunnel（主機不開 inbound port）。
+- 後端：單機 Docker Compose，對外經 Cloudflare 橘雲 + 內建 Caddy 反向代理
+  （主機需開放 inbound 443）。
 - 前後端**不同源**，靠後端 CORS 白名單放行前端 origin。
 
 ## 部署順序
 
-1. 後端上線（Tunnel 通、health check 過）
+1. 後端上線（Caddy 通、health check 過）
 2. 前端部署（build 時注入 API 網域）
 3. 端對端驗證
 
@@ -27,7 +28,7 @@
 ## 1. 後端
 
 完整流程照 **[backend/docs/deployment.md](../backend/docs/deployment.md)**
-（env 變數表、Cloudflare Tunnel 設定、更新與回滾）。在 `backend/` 目錄操作：
+（env 變數表、Cloudflare + Caddy 設定、更新與回滾）。在 `backend/` 目錄操作：
 
 ```bash
 cd backend
@@ -97,12 +98,25 @@ curl -sI https://app.your-domain.com/login | head -3
 
 ## 3. 上線檢核清單
 
-- [ ] 後端 `make prod-up` 成功，Cloudflare Tunnel 顯示 HEALTHY
+- [ ] 後端 `make prod-up` 成功，Cloudflare SSL mode 為 Full 且 caddy 已簽出憑證
 - [ ] `https://api.<domain>/health/live` 回 200
 - [ ] `.env.prod` 的 `CORS_ALLOWED_ORIGINS` = 前端 origin（含 https://）
 - [ ] migrate 已跑（prod compose 的 migrate job 會自動先跑）
 - [ ] 前端 build 用的 `VITE_API_BASE_URL` = API 對外網域
 - [ ] CloudFront SPA fallback（403/404 → /index.html）已設
 - [ ] 瀏覽器完成 login → me → logout 流程，無 CORS/mixed-content 錯誤
-- [ ] （建議）`/admin/` 已用 Cloudflare Zero Trust Access 保護
-      （見 [backend/docs/cloudflare-tunnel.md](../backend/docs/cloudflare-tunnel.md)）
+- [ ] （建議）`/admin/` 已用 Caddyfile 的 IP allowlist 保護
+      （見 [backend/docs/caddy.md](../backend/docs/caddy.md)）
+
+### 告警（前後端都要）
+
+出錯沒人知道，等於沒有監控。完整步驟與檢查清單見
+**[backend/docs/alerting.md](../backend/docs/alerting.md)**。
+
+- [ ] 後端 `SENTRY_DSN` 已填（`ENV=prod` 留空會直接拒絕開機）
+- [ ] 前端 build 時的 `VITE_SENTRY_DSN` 已填
+- [ ] Sentry 已接 Slack，且**實際觸發過一次測試事件確認收得到**
+- [ ] 外部監控在打 `https://api.<domain>/health/ready`（不是 `/health/live`——
+      它永遠回 200，拿來監控等於沒監控）
+- [ ] `BEAT_HEARTBEAT_URL` 已填，監控端已看到第一次 ping
+- [ ] repo secret `SLACK_WEBHOOK_URL` 已設（CI 失敗通知）

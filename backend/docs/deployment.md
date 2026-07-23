@@ -1,19 +1,19 @@
 # 部署指南（單機 Docker Compose）
 
 生產部署走 `docker/docker-compose.prod.yml`：單一主機、外部 DB/Redis、
-對外流量經 Cloudflare Tunnel（詳見 [cloudflare-tunnel.md](cloudflare-tunnel.md)）。
+對外流量經 Cloudflare 橘雲 + 內建 Caddy 反向代理（詳見 [caddy.md](caddy.md)）。
 
 ## 架構
 
 ```
-Cloudflare edge ──tunnel──▶ cloudflared ─▶ api (uvicorn ×N workers)
-                                            │
-                    ┌───────────────────────┤
-              外部 PostgreSQL         外部 Redis ◀── celery-worker / celery-beat
+訪客 ──HTTPS──▶ Cloudflare 橘雲 ──HTTPS──▶ caddy (443) ─▶ api (uvicorn ×N workers)
+                                                            │
+                                           ┌────────────────┤
+                                     外部 PostgreSQL   外部 Redis ◀── celery-worker / celery-beat
 ```
 
 compose 內的服務：`migrate`（一次性 job，跑完其他服務才啟動，避免併發
-migrate）、`api`、`celery-worker`、`celery-beat`、`cloudflared`。
+migrate）、`api`、`celery-worker`、`celery-beat`、`caddy`。
 靜態檔由 whitenoise 直接服務（build 時已 `collectstatic`），不需要 nginx。
 
 ## 前置需求
@@ -22,7 +22,8 @@ migrate）、`api`、`celery-worker`、`celery-beat`、`cloudflared`。
 - **外部 PostgreSQL 與 Redis**（RDS / Cloud SQL / Upstash 等，或自管）。
   prod compose 刻意不包含 DB/Redis——資料層的備份與升級不該跟 app 綁在一起。
   Redis 建議帶密碼 + TLS（`rediss://`）。
-- 網域已加入 Cloudflare（Tunnel 用；不用 Cloudflare 的替代方案見文末）。
+- 網域已加入 Cloudflare（A record 橘雲指向主機 IP、SSL mode 設 Full）、
+  主機開放 inbound 443（細節與替代方案見 [caddy.md](caddy.md)）。
 
 ## `.env.prod` 環境變數
 
@@ -52,18 +53,21 @@ chmod 600 .env.prod        # 內含機密
 | `CSRF_TRUSTED_ORIGINS` | `https://api.your-domain.com` | API **自己的** https origin（Django admin 的 CSRF 檢查用）；必須含 `https://` scheme |
 | `CELERY_BROKER_URL` | `rediss://:pass@host:6380/0` | 生產 Redis（帶密碼；公網務必 TLS） |
 | `CACHE_URL` | `rediss://:pass@host:6380/1` | 與 broker 不同 DB index；throttle 計數器靠它 |
-| `TUNNEL_TOKEN` | `eyJ...` | Cloudflare Tunnel token（[取得方式](cloudflare-tunnel.md#步驟一cloudflare-端--建立-tunnel)）。compose 變數替換讀取，非 `Settings` 欄位 |
-| `FORWARDED_ALLOW_IPS` | `172.16.0.0/12` | 信任哪些 proxy 的 `X-Forwarded-*`。預設值即對應內建 cloudflared（compose bridge 網段）；**設錯 per-IP 節流會失效**，換反代時必看 `.env.prod.example` 的說明 |
+| `DOMAIN` | `api.your-domain.com` | Caddy 對外站台域名（[Cloudflare 端設定](caddy.md#步驟一cloudflare-端)）。compose 變數替換讀取，非 `Settings` 欄位 |
+| `NINJA_NUM_PROXIES` | `2` | 信任的反代層數：Cloudflare edge + Caddy 共 2 層。**設錯 per-IP 節流會失效**，改變拓撲時必須重算 |
+| `FORWARDED_ALLOW_IPS` | `172.16.0.0/12` | 信任哪些 proxy 的 `X-Forwarded-*`。預設值即對應內建 caddy（compose bridge 網段）；**設錯 per-IP 節流會失效**，換反代時必看 `.env.prod.example` 的說明 |
+| `SENTRY_DSN` | Sentry 專案的 DSN | **prod 必填**，留空會拒絕開機。填了只做到「錯誤被記錄」，要通知到人還得建 Slack alert rule（見 [alerting.md](alerting.md)）。真的不用請填 `disabled` |
 
 ### 選填 — 有合理預設
 
 | 變數 | 預設 | 說明 |
 | --- | --- | --- |
-| `NINJA_NUM_PROXIES` | `1` | 信任的反代層數。Cloudflare Tunnel 維持 1；多一層 CDN/LB 就 +1，必須與 `FORWARDED_ALLOW_IPS` 對應同一套拓撲 |
 | `WEB_CONCURRENCY` | CPU+1 | uvicorn worker 數 |
 | `CELERY_CONCURRENCY` | `4` | 每個 worker 容器的 process 數（compose 變數替換） |
 | `DB_CONN_POOL` | `false` | psycopg3 連線池。預設用持久連線（`CONN_MAX_AGE=600`＋健康檢查）已夠用；高併發、或 DB 連線數吃緊時再開 |
-| `SENTRY_DSN` | 空（停用） | 填 DSN 即啟用錯誤追蹤；`SENTRY_TRACES_SAMPLE_RATE`（example 給 0.1）/ `SENTRY_PROFILES_SAMPLE_RATE`（0.0）控制取樣 |
+| `SENTRY_TRACES_SAMPLE_RATE` / `SENTRY_PROFILES_SAMPLE_RATE` | `0.1` / `0.0` | 效能追蹤與 profiling 的取樣率（`SENTRY_DSN` 本身是必填，見上表） |
+| `BEAT_HEARTBEAT_URL` | 空（停用） | celery-beat 心跳的 ping URL。beat 掛掉是最安靜的故障，沒有這個就只能等人發現排程沒跑（見 [alerting.md](alerting.md)） |
+| `CELERY_QUEUE_DEPTH_ALERT_THRESHOLD` | `1000` | 佇列積壓告警門檻。積壓時沒有任何任務會失敗，不主動量測不會知道。依實際流量調整 |
 | `ARTICLE_PUBLISHED_WEBHOOK_URL` | 空（停用） | 文章發布 webhook 示範整合 |
 | `AUTH_TOKEN_TTL_DAYS` 等 tuning | 見 `.env.prod.example` | token 效期、throttle rates、分頁大小，皆有預設 |
 
@@ -82,8 +86,8 @@ cp .env.prod.example .env.prod
 chmod 600 .env.prod
 vim .env.prod
 
-# 3. Cloudflare 端建立 Tunnel、把 token 填進 .env.prod
-#    （步驟見 docs/cloudflare-tunnel.md 步驟一）
+# 3. Cloudflare 端：A record 橘雲指向本機 IP、SSL mode 設 Full；
+#    主機防火牆開 443（步驟見 docs/caddy.md 步驟一）
 
 # 4. 建置並啟動
 make prod-build
@@ -95,11 +99,11 @@ make prod-up      # migrate job 先跑完，api/worker/beat 才會啟動
 ```bash
 make prod-logs                                  # 各服務啟動 log
 curl -i http://127.0.0.1:8000/health/live      # 本機直測 api：應為 200
-curl -i https://api.your-domain.com/health/live # 走 Cloudflare：應為 200
+curl -i https://api.your-domain.com/health/live # 走 Cloudflare + Caddy：應為 200
 ```
 
-再照 [cloudflare-tunnel.md 步驟三](cloudflare-tunnel.md#步驟三驗證)確認
-tunnel HEALTHY、access log 看得到真實 client IP（per-IP 節流依賴此點）。
+再照 [caddy.md 步驟三](caddy.md#步驟三驗證)確認 SSL mode 正確、
+log 看得到真實 client IP（per-IP 節流依賴此點）。
 
 啟動失敗時先看 `make prod-logs`：`Settings` 驗證錯誤（SECRET_KEY／dev 預設值
 殘留）會在 log 裡直接寫明是哪個變數。
@@ -110,8 +114,8 @@ tunnel HEALTHY、access log 看得到真實 client IP（per-IP 節流依賴此�
 docker compose -f docker/docker-compose.prod.yml exec api python manage.py createsuperuser
 ```
 
-（建議同時照 [cloudflare-tunnel.md](cloudflare-tunnel.md#保護-admin建議) 用
-Zero Trust Access 保護 `/admin/`——它沒有 rate limit。）
+（建議同時照 [caddy.md](caddy.md#保護-admin建議) 在 Caddyfile 加 IP
+allowlist 保護 `/admin/`——它沒有 rate limit。）
 
 ## 更新部署
 
@@ -130,14 +134,16 @@ make prod-up      # 重建的 migrate job 先套新 migration，服務再滾動�
   需要留存就接 log collector。
 - **備份**：DB/Redis 是外部服務，備份策略在那邊做（app 主機無狀態，
   重建即可）。
-- **監控**：`/health/ready` 會檢查 DB + cache + Celery（Celery 掛 = degraded
-  但仍 200；DB/cache 掛 = 503），可接 uptime 監控。錯誤追蹤填 `SENTRY_DSN`
-  即啟用。
+- **告警**：完整設定與上線檢查清單見 **[alerting.md](alerting.md)**。
+  重點是它分兩類問題：Sentry 抓「程式壞了」，外部監控抓「服務不見了」——
+  後者（beat 死掉、worker 沒起來、佇列積壓）不會產生任何 Sentry 事件，
+  沉默和健康長得一模一樣，只能靠外部訊號偵測。
+  `/health/ready` 要接 uptime 監控（不是 `/health/live`，它永遠回 200）。
 - **依賴更新**：dependabot 每週開 PR（uv / GitHub Actions / Docker 三類）；
   CI 會跑 pip-audit 與 Trivy 掃描。
 
-## 不用 Cloudflare 的話
+## 不用內建 Caddy 的話
 
-自架 nginx/Caddy 反代 `127.0.0.1:8000`，並刪除 `cloudflared` service——
+自架 nginx（或雲端 LB）反代 `127.0.0.1:8000`，並刪除 `caddy` service——
 步驟與 `FORWARDED_ALLOW_IPS` / `NINJA_NUM_PROXIES` 的對應調整見
-[cloudflare-tunnel.md「不使用 Cloudflare Tunnel 時」](cloudflare-tunnel.md#不使用-cloudflare-tunnel-時)。
+[caddy.md「不使用內建 Caddy 時」](caddy.md#不使用內建-caddy-時)。

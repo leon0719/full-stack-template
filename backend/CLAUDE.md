@@ -117,8 +117,10 @@ args and keep them idempotent (broker uses `acks_late`). Celery Beat uses `Datab
   one-off `migrate` job gates api/worker/beat, json-file log rotation
 - Static files are served by whitenoise in every env (manifest storage in prod;
   `collectstatic` runs at image build). No nginx required for static.
-- Public exposure: prod compose ships a `cloudflared` (Cloudflare Tunnel) service —
-  `TUNNEL_TOKEN` in `.env.prod`, no inbound ports; setup guide in `docs/cloudflare-tunnel.md`.
+- Public exposure: Cloudflare orange-cloud → bundled `caddy` service (`tls
+  internal` self-signed origin cert, Cloudflare SSL mode Full, `trusted_proxies`
+  = Cloudflare IPs, `NINJA_NUM_PROXIES=2`) — `DOMAIN` in `.env.prod`, host opens
+  inbound 443, Caddyfile at `docker/Caddyfile`; setup guide in `docs/caddy.md`.
 - TLS terminates at the edge/reverse proxy: set `FORWARDED_ALLOW_IPS` (uvicorn trusts
   `X-Forwarded-*` for scheme + client IP — throttling keys on it) and
   `CSRF_TRUSTED_ORIGINS` in `.env.prod`.
@@ -153,4 +155,15 @@ args and keep them idempotent (broker uses `acks_late`). Celery Beat uses `Datab
 ## Docs (`docs/`)
 - `local-development.md` — 本地開發：env 變數表、日常指令、測試、常見問題
 - `deployment.md` — 部署：.env.prod 完整變數表、部署/更新步驟、維運備忘
-- `cloudflare-tunnel.md` — Cloudflare Tunnel 設定（含 dashboard 端與 /admin 保護）
+- `caddy.md` — Cloudflare 橘雲 + Caddy 設定（含 SSL mode、真實 client IP 與 /admin 保護）
+- `alerting.md` — 告警：Sentry→Slack alert rule、health 端點監控、beat 心跳、
+  佇列積壓、CI 失敗通知（含上線檢查清單）
+
+### Alerting (`config/alerting.py` + `apps/core/tasks.py`)
+Sentry 只看得到「跑了而且丟出例外」的程式碼。壞掉卻安靜的故障（beat 死掉、
+worker 沒起來、佇列積壓）不會產生任何 Sentry 事件，得靠外部訊號偵測：
+- `BEAT_HEARTBEAT_URL` — beat 每 5 分鐘 ping 外部監控；ping 停止即代表 beat 掛了
+- `CELERY_QUEUE_DEPTH_ALERT_THRESHOLD` — 直接問 broker 佇列長度（不是 `celery
+  inspect`，因為 worker 全掛時 inspect 也問不到），超標送 Sentry
+- `task_failure` / `task_retry` signal — 補結構化 log，供 log-based 告警使用
+- `ENV=prod` 時 `SENTRY_DSN` 為**必填**，留空拒絕開機；不用請顯式填 `disabled`

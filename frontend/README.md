@@ -106,6 +106,38 @@ const { t } = useTranslation();
 
 新增語言：於 `src/shared/i18n/config.ts` 的 `SUPPORTED_LANGUAGES` 與 `resources` 註冊，並新增 `src/shared/i18n/locales/<code>.json`。詞庫 key 以 `zh-TW.json` 為型別來源。
 
+## 錯誤追蹤與告警
+
+在 `.env`（或部署時的建置環境）填入 `VITE_SENTRY_DSN` 即啟用：
+
+```bash
+VITE_SENTRY_DSN=https://<public-key>@<org>.ingest.sentry.io/<project-id>
+```
+
+啟用後這三條路徑都會送進 Sentry：
+
+- `reportError(error, context?)` 的所有呼叫
+- `<ErrorBoundary>` 接住的 render 錯誤
+- `window` 層級的 `error` / `unhandledrejection`（`installGlobalErrorReporting`）
+
+留空則完全不啟用（`initErrorTracking()` 直接 return），reporter 維持預設的
+`console.error`——本機開發不需要接 Sentry。
+
+> DSN 會被打包進 bundle，這是預期的：Sentry DSN 設計上就是可公開的**寫入**端點，
+> 無法用來讀取專案資料。但 Sentry 的 **auth token** 絕不可放進 `VITE_` 變數。
+
+build 會產生 `hidden` sourcemap（`dist/assets/*.map`，不對瀏覽器曝光），
+上傳到 Sentry 後才能看到還原後的 stack trace。
+
+**填了 DSN 只做到「錯誤被記錄」。** 要讓錯誤真的通知到人，還得在 Sentry
+建 alert rule 接 Slack——步驟見[`backend/docs/alerting.md`](../backend/docs/alerting.md)。
+
+### CI 失敗通知
+
+`main` 分支 CI 失敗時會發 Slack，需設定 repo secret `SLACK_WEBHOOK_URL`
+（*Settings* → *Secrets and variables* → *Actions*）。未設定時 CI 會印一則
+warning 說明通知未啟用，但不會讓 CI 變紅。
+
 ## 已知限制 / Known Limitations
 
 冷載入 / 硬重新整理 / 直接深連結到受保護路由（如 `/admin`）時，路由的同步 `beforeLoad`

@@ -22,6 +22,11 @@ _DEV_CORS_ALLOWED_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000,http://
 _DEV_CELERY_BROKER_URL = "redis://redis:6379/0"
 _DEV_CACHE_URL = "redis://redis:6379/1"
 
+# Explicit opt-out value for SENTRY_DSN in prod. Prod refuses to boot with an
+# empty DSN (see Settings._validate_prod) so that "no error tracking" can only
+# ever be a deliberate choice, never an oversight.
+SENTRY_DSN_OPT_OUT = "disabled"
+
 
 # ---------------------------------------------------------------------------
 # Pydantic Settings (env-driven)
@@ -61,10 +66,27 @@ class Settings(BaseSettings):
     # (consumed by prod.py; see its NINJA_NUM_PROXIES comment).
     NINJA_NUM_PROXIES: int = Field(default=1, ge=0)
 
-    # Sentry (error tracking) — leave DSN empty to disable (local/test default)
+    # Sentry (error tracking) — leave DSN empty to disable (local/test default).
+    # In prod the DSN is REQUIRED: shipping without error tracking means failures
+    # are invisible. Opting out is possible but must be explicit — set the DSN to
+    # SENTRY_DSN_OPT_OUT ("disabled") so it's a decision, not an oversight.
     SENTRY_DSN: SecretStr = SecretStr("")
     SENTRY_TRACES_SAMPLE_RATE: float = Field(default=0.0, ge=0.0, le=1.0)
     SENTRY_PROFILES_SAMPLE_RATE: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    # Heartbeat URL for an external uptime monitor (healthchecks.io, Better Stack,
+    # Cronitor…). celery-beat pings it on a schedule; if beat stops running the
+    # ping stops arriving and the monitor alerts. Empty disables the heartbeat.
+    #
+    # This covers the blind spot Sentry cannot: Sentry only hears about code that
+    # RAN and threw. A beat process that died, or a worker container that never
+    # came back up, produces silence — and silence looks identical to "healthy".
+    BEAT_HEARTBEAT_URL: SecretStr = SecretStr("")
+
+    # Alert when the Celery queue backlog exceeds this many messages. A growing
+    # backlog means workers can't keep up — no individual task fails, so nothing
+    # else would ever tell you. 0 disables the check.
+    CELERY_QUEUE_DEPTH_ALERT_THRESHOLD: int = Field(default=1000, ge=0)
 
     # Auth
     AUTH_TOKEN_TTL_DAYS: PositiveInt = 7
@@ -128,6 +150,18 @@ class Settings(BaseSettings):
 
         if self.CACHE_URL.get_secret_value() == _DEV_CACHE_URL:
             raise ValueError("CACHE_URL not set: prod must point at its own cache, not the dev default.")
+
+        # Error tracking is not optional-by-accident. Every other prod check here
+        # guards against an unsafe value; this one guards against the absence of
+        # any way to LEARN that something is wrong. Left as a plain optional, the
+        # overwhelmingly common outcome is a service running for months with
+        # nobody watching it.
+        if not self.SENTRY_DSN.get_secret_value().strip():
+            raise ValueError(
+                "SENTRY_DSN not set: prod must have error tracking configured, otherwise failures "
+                "are silent. Set the DSN from your Sentry project (and wire a Slack alert rule — "
+                f'see docs/alerting.md), or set SENTRY_DSN="{SENTRY_DSN_OPT_OUT}" to opt out explicitly.'
+            )
 
         return self
 
@@ -351,7 +385,22 @@ CELERY_BEAT_SCHEDULE = {
         "task": "accounts.purge_expired_tokens",
         "schedule": crontab(hour=3, minute=0),  # daily at 03:00 UTC
     },
+    # 維運訊號(見 config/alerting.py)。頻率要比監控端設定的「多久沒收到就告警」
+    # grace period 密一些,否則正常運作也會誤報。
+    "beat-heartbeat": {
+        "task": "core.beat_heartbeat",
+        "schedule": crontab(minute="*/5"),
+    },
+    "check-queue-depth": {
+        "task": "core.check_queue_depth",
+        "schedule": crontab(minute="*/5"),
+    },
 }
+
+# 攤平成 Django settings,供 apps/core/tasks.py 與 config/alerting.py 讀取
+# (它們拿到的是 django.conf.settings,不是 pydantic 的 Settings 實例)。
+BEAT_HEARTBEAT_URL = settings.BEAT_HEARTBEAT_URL.get_secret_value()
+CELERY_QUEUE_DEPTH_ALERT_THRESHOLD = settings.CELERY_QUEUE_DEPTH_ALERT_THRESHOLD
 
 # ---------------------------------------------------------------------------
 # Static files
@@ -403,11 +452,14 @@ GIT_COMMIT_SHA = settings.GIT_COMMIT_SHA or "unknown"
 # ---------------------------------------------------------------------------
 # NB: a SecretStr instance is always truthy (even when empty), so gate on the
 # unwrapped value to keep the "empty DSN disables Sentry" behaviour.
-if settings.SENTRY_DSN.get_secret_value():
+# SENTRY_DSN_OPT_OUT is the explicit "we know, we chose not to" value that prod
+# accepts in place of a real DSN — treat it the same as unset here.
+_sentry_dsn = settings.SENTRY_DSN.get_secret_value().strip()
+if _sentry_dsn and _sentry_dsn != SENTRY_DSN_OPT_OUT:
     from config.sentry import init_sentry
 
     init_sentry(
-        dsn=settings.SENTRY_DSN.get_secret_value(),
+        dsn=_sentry_dsn,
         environment=ENV,
         release=GIT_COMMIT_SHA,
         traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,

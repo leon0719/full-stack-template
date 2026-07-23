@@ -31,10 +31,10 @@ services:
 
   api:
     <<: *app-base
-    # Public traffic arrives via cloudflared → api:8000 over the compose network
+    # Public traffic arrives via caddy → api:8000 over the compose network
     # and never touches this port mapping. The loopback bind exists for local
     # smoke tests (curl 127.0.0.1:8000) or for fronting uvicorn with your own
-    # same-host reverse proxy instead of the tunnel. Never bind 0.0.0.0 — anyone
+    # reverse proxy instead of the bundled caddy. Never bind 0.0.0.0 — anyone
     # reaching uvicorn directly could spoof X-Forwarded-* (see
     # FORWARDED_ALLOW_IPS in .env.prod.example).
     ports:
@@ -131,19 +131,28 @@ services:
     #       cpus: "1.0"
     #       memory: 512m
 
-  # Cloudflare Tunnel：對外流量走 Cloudflare edge → cloudflared（由容器主動向外
-  # 連線）→ http://api:8000（compose 內部網路），主機完全不需開放 80/443/8000。
-  # TLS 在 Cloudflare edge 終止，X-Forwarded-For/Proto 由 edge 設好帶進來。
-  # 設定步驟（含 Cloudflare dashboard 端）見 docs/cloudflare-tunnel.md。
-  # 不使用 Cloudflare Tunnel（改自架 nginx/Caddy 反代）時，刪除本 service 即可。
-  cloudflared:
-    image: cloudflare/cloudflared:2026.7.2@sha256:4f6655284ab3d252b7f28fedb19fe6c8fc82ee5b1295c20ac74d475e5398a52d
+  # Caddy 反向代理：對外流量走 訪客 ──HTTPS──▶ Cloudflare 橘雲 ──HTTPS──▶
+  # caddy（主機開放 80/443）──▶ http://api:8000（compose 內部網路）。
+  # 後半段 TLS 用 Caddy 自簽憑證（Caddyfile 的 tls internal），搭配 Cloudflare
+  # SSL mode「Full」。真實 client IP 靠 Caddyfile 的 trusted_proxies（信任
+  # Cloudflare IP 段）保留並帶進 api。設定步驟見 docs/caddy.md。
+  # 不使用內建 Caddy（改自架 nginx 或雲端 LB）時，刪除本 service 即可。
+  caddy:
+    image: caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
     restart: unless-stopped
-    command: ["tunnel", "--no-autoupdate", "run"]
+    ports:
+      - "80:80"
+      - "443:443"
     environment:
       # 由 compose 變數替換注入（Makefile 以 --env-file .env.prod 載入本檔案外的
-      # 環境）；留空時 cloudflared 會啟動失敗並在 logs 說明，不影響其他服務。
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
+      # 環境）；留空時 caddy 會啟動失敗並在 logs 說明，不影響其他服務。
+      - DOMAIN=${DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 憑證與 ACME 帳號需持久化——否則每次重啟都重新申請，
+      # 會撞 Let's Encrypt rate limit。
+      - caddy_data:/data
+      - caddy_config:/config
     logging: *default-logging
     depends_on:
       api:
@@ -155,11 +164,15 @@ services:
 # 1. 資料庫和 Redis 應使用外部服務 (RDS, ElastiCache, Cloud SQL 等)
 # 2. 在 .env.prod 中設定正確的 SECRET_KEY、DATABASE_URL、CELERY_BROKER_URL 與
 #    CACHE_URL，並 `chmod 600 .env.prod`
-# 3. 對外連線由內建的 cloudflared (Cloudflare Tunnel) 處理，見
-#    docs/cloudflare-tunnel.md；改用自架 nginx/LB 時刪除 cloudflared service，
+# 3. 對外連線由內建的 caddy 反向代理處理（主機需開放 80/443），見
+#    docs/caddy.md；改用自架 nginx/LB 時刪除 caddy service，
 #    並同步調整 FORWARDED_ALLOW_IPS 與 NINJA_NUM_PROXIES（見 .env.prod.example）
 # 4. 確保 ALLOWED_HOSTS 設定正確的域名
 
 networks:
   app:
     driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

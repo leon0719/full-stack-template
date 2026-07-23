@@ -87,8 +87,8 @@ Environment is selected with the `ENV` variable (`local` by default), which pick
 ## Production Deployment (single-host Docker Compose)
 
 Step-by-step guide with the full env-var reference:
-[docs/deployment.md](docs/deployment.md) · Cloudflare Tunnel setup:
-[docs/cloudflare-tunnel.md](docs/cloudflare-tunnel.md)
+[docs/deployment.md](docs/deployment.md) · Cloudflare + Caddy setup:
+[docs/caddy.md](docs/caddy.md)
 
 Bring the stack up with the prod compose file, but get these right first — each one
 fails silently or insecurely if skipped:
@@ -107,25 +107,27 @@ fails silently or insecurely if skipped:
    Per-IP rate limits on `/auth/login` and `/auth/register` key on the client IP
    derived from `X-Forwarded-For`. Two settings must agree with your actual topology:
    - `FORWARDED_ALLOW_IPS` — the proxy IP/CIDR uvicorn trusts for `X-Forwarded-*`.
-     The example value (`172.16.0.0/12`) matches the shipped cloudflared service.
-   - `NINJA_NUM_PROXIES` — the number of trusted proxy hops (default `1`, correct
-     for the tunnel). Set it too low and a direct caller can spoof
+     The example value (`172.16.0.0/12`) matches the shipped caddy service.
+   - `NINJA_NUM_PROXIES` — the number of trusted proxy hops (`2` for the shipped
+     Cloudflare + Caddy topology; the Caddyfile's `trusted_proxies` covers the
+     Cloudflare IP ranges). Set it too low and a direct caller can spoof
      `X-Forwarded-For` to defeat the throttle; too high and a legitimate client
-     value is mistaken for the source IP. Add 1 per extra CDN/LB hop.
+     value is mistaken for the source IP. Recount whenever the topology changes.
 
-   Running your own reverse proxy instead of the tunnel? The API binds to
+   Running your own reverse proxy instead of the bundled Caddy? The API binds to
    `127.0.0.1:8000`, so a same-host proxy works as-is; **if the proxy is on another
    host, firewall port 8000 from the public internet** — anyone reaching uvicorn
    directly can spoof the headers above.
 
-4. **Expose the API via Cloudflare Tunnel (shipped default).** The prod compose
-   includes a `cloudflared` service: create a tunnel in the Cloudflare Zero Trust
-   dashboard, point its public hostname at `http://api:8000`, and set `TUNNEL_TOKEN`
-   in `.env.prod`. No inbound port needs to be open and TLS is handled at the edge.
-   Full walkthrough (including Cloudflare-side settings and protecting `/admin/`
-   with Zero Trust Access): [docs/cloudflare-tunnel.md](docs/cloudflare-tunnel.md).
-   Not using Cloudflare? Delete the `cloudflared` service and front uvicorn with
-   your own reverse proxy per step 3.
+4. **Expose the API via Cloudflare (orange-cloud) + Caddy (shipped default).**
+   The prod compose includes a `caddy` service: point a proxied (orange-cloud)
+   A record at the host, set Cloudflare SSL mode to **Full**, open inbound 443,
+   and set `DOMAIN` in `.env.prod`. Cloudflare terminates the visitor-facing
+   TLS; Caddy encrypts the Cloudflare→origin leg with a self-signed cert
+   (`tls internal`), so no ACME setup is needed. Full walkthrough (including
+   Cloudflare-side settings and protecting `/admin/`):
+   [docs/caddy.md](docs/caddy.md). Not using Caddy? Delete the `caddy` service
+   and front uvicorn with your own reverse proxy per step 3.
 
 ## Project Layout
 
