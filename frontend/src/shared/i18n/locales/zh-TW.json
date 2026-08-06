@@ -16,12 +16,16 @@
   "auth": {
     "login": {
       "title": "登入",
-      "username": "帳號",
-      "password": "密碼",
-      "submit": "登入",
-      "usernameRequired": "請輸入帳號",
-      "passwordRequired": "請輸入密碼",
-      "failed": "帳號或密碼錯誤"
+      "lineButton": "使用 LINE 登入",
+      "callbackProcessing": "登入處理中…",
+      "callbackFailed": "登入失敗，請重新嘗試。",
+      "backToLogin": "回登入頁"
+    },
+    "logout": {
+      "title": "已登出",
+      "processing": "登出中…",
+      "done": "您已成功登出。",
+      "backToLogin": "回登入頁"
     }
   },
   "pages": {

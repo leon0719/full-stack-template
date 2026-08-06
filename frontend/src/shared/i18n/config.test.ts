@@ -12,7 +12,7 @@ describe("i18n config", () => {
 
   it("resolves zh-TW strings by default", () => {
     expect(i18n.t("common.logout")).toBe("登出");
-    expect(i18n.t("auth.login.failed")).toBe("帳號或密碼錯誤");
+    expect(i18n.t("auth.login.lineButton")).toBe("使用 LINE 登入");
   });
 
   it("resolves en strings after switching language", async () => {

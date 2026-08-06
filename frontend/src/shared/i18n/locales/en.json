@@ -16,12 +16,16 @@
   "auth": {
     "login": {
       "title": "Login",
-      "username": "Username",
-      "password": "Password",
-      "submit": "Login",
-      "usernameRequired": "Username is required",
-      "passwordRequired": "Password is required",
-      "failed": "Incorrect username or password"
+      "lineButton": "Log in with LINE",
+      "callbackProcessing": "Signing you in…",
+      "callbackFailed": "Login failed, please try again.",
+      "backToLogin": "Back to login"
+    },
+    "logout": {
+      "title": "Logged out",
+      "processing": "Logging out…",
+      "done": "You have been logged out.",
+      "backToLogin": "Back to login"
     }
   },
   "pages": {
