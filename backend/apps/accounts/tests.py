@@ -182,3 +182,31 @@ def test_purge_expired_tokens_removes_only_expired(user):
 
     assert deleted == 1
     assert list(AuthToken.objects.values_list("digest", flat=True)) == ["valid"]
+
+
+@pytest.mark.integration
+def test_line_login_redirects_to_line_authorize(db, settings):
+    """Test that the LINE OAuth login endpoint correctly redirects to LINE's authorize URL."""
+    from allauth.socialaccount.models import SocialApp
+    from django.contrib.sites.models import Site
+
+    # Allow testserver (pytest test client's default HOST)
+    settings.ALLOWED_HOSTS.append("testserver")
+
+    # Ensure no leftover LINE SocialApps from previous tests
+    SocialApp.objects.filter(provider="line").delete()
+
+    # Create a minimal LINE SocialApp using the credentials from settings
+    site = Site.objects.get_current()
+    line_app = SocialApp.objects.create(
+        provider="line",
+        name="LINE",
+        client_id="test-channel-id",
+        secret="test-secret",
+    )
+    line_app.sites.add(site)
+
+    # django-allauth's OAuth flow redirects on POST (not GET) to the provider's authorize endpoint
+    resp = Client().post("/accounts/line/login/", {})
+    assert resp.status_code == 302
+    assert "access.line.me" in resp["Location"]

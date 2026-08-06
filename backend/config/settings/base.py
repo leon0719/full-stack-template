@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     # Auth
     AUTH_TOKEN_TTL_DAYS: PositiveInt = 7
 
+    # LINE Login (django-allauth socialaccount provider)
+    LINE_LOGIN_CHANNEL_ID: str = ""
+    LINE_LOGIN_CHANNEL_SECRET: SecretStr = SecretStr("")
+    # Where the LINE-login redirect sends the browser back to after issuing a
+    # bearer token (see apps/accounts/adapters.py:LineAccountAdapter).
+    FRONTEND_BASE_URL: str = "http://localhost:5173"
+
     # Throttle rates (Django Ninja rate strings, e.g. "30/m")
     THROTTLE_WRITE_RATE: str = "30/m"
     THROTTLE_LOGIN_RATE: str = "10/m"
@@ -151,6 +158,15 @@ class Settings(BaseSettings):
         if self.CACHE_URL.get_secret_value() == _DEV_CACHE_URL:
             raise ValueError("CACHE_URL not set: prod must point at its own cache, not the dev default.")
 
+        if not self.LINE_LOGIN_CHANNEL_ID.strip():
+            raise ValueError("LINE_LOGIN_CHANNEL_ID not set: prod must configure the LINE Login channel.")
+
+        if not self.LINE_LOGIN_CHANNEL_SECRET.get_secret_value().strip():
+            raise ValueError("LINE_LOGIN_CHANNEL_SECRET not set: prod must configure the LINE Login channel.")
+
+        if self.FRONTEND_BASE_URL == "http://localhost:5173":
+            raise ValueError("FRONTEND_BASE_URL not set: prod must point at the real frontend origin.")
+
         # Error tracking is not optional-by-accident. Every other prod check here
         # guards against an unsafe value; this one guards against the absence of
         # any way to LEARN that something is wrong. Left as a plain optional, the
@@ -192,7 +208,14 @@ INSTALLED_APPS = [
     "apps.health",
     "apps.accounts",
     "apps.articles",
+    "django.contrib.sites",
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
+    "allauth.socialaccount.providers.line",
 ]
+
+SITE_ID = 1
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -208,6 +231,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "allauth.account.middleware.AccountMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -323,6 +347,26 @@ MAX_PAGE_SIZE = settings.MAX_PAGE_SIZE
 # External integrations (consumed by apps.articles.external_services)
 # ---------------------------------------------------------------------------
 ARTICLE_PUBLISHED_WEBHOOK_URL = settings.ARTICLE_PUBLISHED_WEBHOOK_URL
+
+# ---------------------------------------------------------------------------
+# django-allauth — LINE Login only. SOCIALACCOUNT_ONLY disables every local
+# username/password account flow; custom adapters (apps/accounts/adapters.py)
+# turn the OAuth callback into "issue our own opaque bearer token".
+# ---------------------------------------------------------------------------
+SOCIALACCOUNT_ONLY = True
+ACCOUNT_EMAIL_VERIFICATION = "none"
+ACCOUNT_ADAPTER = "apps.accounts.adapters.LineAccountAdapter"
+SOCIALACCOUNT_ADAPTER = "apps.accounts.adapters.LineSocialAccountAdapter"
+SOCIALACCOUNT_PROVIDERS = {
+    "line": {
+        "APP": {
+            "client_id": settings.LINE_LOGIN_CHANNEL_ID,
+            "secret": settings.LINE_LOGIN_CHANNEL_SECRET.get_secret_value(),
+        },
+        "SCOPE": ["profile", "openid"],
+    }
+}
+FRONTEND_BASE_URL = settings.FRONTEND_BASE_URL
 
 # ---------------------------------------------------------------------------
 # Internationalization

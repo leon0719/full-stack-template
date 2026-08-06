@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib import admin
-from django.urls import path
+from django.urls import include, path
 from ninja import NinjaAPI
 
 from apps.accounts.views import auth_router
@@ -27,5 +27,6 @@ api.add_router("/articles", articles_router)
 # Static files (admin CSS/JS) are served by whitenoise middleware in every env.
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("accounts/", include("allauth.urls")),
     path("", api.urls),
 ]

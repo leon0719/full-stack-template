@@ -25,6 +25,9 @@ def _prod_kwargs(**overrides):
         "CELERY_BROKER_URL": "redis://real-broker:6379/0",
         "CACHE_URL": "redis://real-cache:6379/1",
         "SENTRY_DSN": "https://public@o0.ingest.sentry.io/1",
+        "LINE_LOGIN_CHANNEL_ID": "test-channel-id",
+        "LINE_LOGIN_CHANNEL_SECRET": "test-secret",
+        "FRONTEND_BASE_URL": "https://app.example.com",
     }
     return {**base, **overrides}
 
