@@ -354,6 +354,9 @@ ARTICLE_PUBLISHED_WEBHOOK_URL = settings.ARTICLE_PUBLISHED_WEBHOOK_URL
 # turn the OAuth callback into "issue our own opaque bearer token".
 # ---------------------------------------------------------------------------
 SOCIALACCOUNT_ONLY = True
+# Required: even with SOCIALACCOUNT_ONLY, the allauth account layer still
+# processes email verification rules during OAuth flow; set to "none" to skip
+# verification since LINE provides a verified email in the profile.
 ACCOUNT_EMAIL_VERIFICATION = "none"
 ACCOUNT_ADAPTER = "apps.accounts.adapters.LineAccountAdapter"
 SOCIALACCOUNT_ADAPTER = "apps.accounts.adapters.LineSocialAccountAdapter"
