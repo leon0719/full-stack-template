@@ -7,7 +7,6 @@ export type {
   AuthAdapter,
   AuthSession,
   AuthStatus,
-  Credentials,
   Role,
   User,
 } from "./model/types";

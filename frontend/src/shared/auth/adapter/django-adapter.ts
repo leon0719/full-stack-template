@@ -6,11 +6,19 @@ interface MeResponse {
   id: number;
   username: string;
   email: string;
+  display_name: string | null;
+  picture_url: string | null;
 }
 
 // 後端 accounts 尚無角色概念，固定給 "user"；接 RBAC 時在此對映後端的角色欄位。
 function toUser(me: MeResponse): User {
-  return { id: String(me.id), name: me.username, roles: ["user"] };
+  return {
+    id: String(me.id),
+    name: me.username,
+    roles: ["user"],
+    displayName: me.display_name ?? undefined,
+    pictureUrl: me.picture_url ?? undefined,
+  };
 }
 
 async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
@@ -35,17 +43,23 @@ async function fetchMe(token: string): Promise<User | null> {
   return toUser((await res.json()) as MeResponse);
 }
 
-// 串接 backend apps/accounts 的 opaque bearer token 認證:
-// login 只回 {token},user 資料需再打 /auth/me,故 login 為兩段式。
+// 串接 backend apps/accounts 的 opaque bearer token 認證。登入只能透過 LINE:
+// getLineLoginUrl() 產生整頁導轉連結;LINE 完成授權後,後端把瀏覽器導回
+// /login/callback?code=...,該頁呼叫 completeLineLogin() 把 code 換成 token,
+// 再沿用既有兩段式流程(存 token → 打 /auth/me 取得使用者資料)。
 export const djangoAuthAdapter: AuthAdapter = {
-  async login(credentials) {
-    const res = await fetch(`${env.apiBaseUrl}/auth/login`, {
+  getLineLoginUrl() {
+    return `${env.apiBaseUrl}/accounts/line/login/?process=login`;
+  },
+
+  async completeLineLogin(code) {
+    const res = await fetch(`${env.apiBaseUrl}/auth/line/exchange`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(credentials),
+      body: JSON.stringify({ code }),
     });
     if (!res.ok) {
-      throw new Error(await extractErrorMessage(res, `POST /auth/login failed with ${res.status}`));
+      throw new Error(await extractErrorMessage(res, `POST /auth/line/exchange failed with ${res.status}`));
     }
     const { token } = (await res.json()) as { token: string };
     const user = await fetchMe(token);

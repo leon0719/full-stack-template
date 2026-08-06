@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { fakeAuthAdapter } from "../adapter/fake-adapter";
 import { tokenStorage } from "../lib/token-storage";
-import type { AuthAdapter, AuthStatus, Credentials, User } from "./types";
+import type { AuthAdapter, AuthStatus, User } from "./types";
 
 let adapter: AuthAdapter = fakeAuthAdapter;
 
@@ -22,7 +22,7 @@ interface AuthState {
   user: User | null;
   token: string | null;
   status: AuthStatus;
-  login: (credentials: Credentials) => Promise<void>;
+  completeLineLogin: (code: string) => Promise<void>;
   logout: () => Promise<void>;
   clear: () => void;
   init: () => Promise<void>;
@@ -41,15 +41,19 @@ export function resetAuthForTests(): void {
   sessionReady = null;
 }
 
+export function getLineLoginUrl(): string {
+  return adapter.getLineLoginUrl();
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   token: null,
   status: "idle",
-  login: async (credentials) => {
+  completeLineLogin: async (code) => {
     assertAdapterSafeForProd();
     set({ status: "loading" });
     try {
-      const { user, token } = await adapter.login(credentials);
+      const { user, token } = await adapter.completeLineLogin(code);
       set({ user, token, status: "authenticated" });
     } catch (error) {
       set({ user: null, token: null, status: "unauthenticated" });

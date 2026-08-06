@@ -34,23 +34,21 @@ describe("useAuthStore", () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  it("logs in with valid credentials", async () => {
-    await useAuthStore.getState().login({ username: "admin", password: "admin" });
+  it("completes LINE login with a valid code", async () => {
+    await useAuthStore.getState().completeLineLogin("fake-code-admin");
     const s = useAuthStore.getState();
     expect(s.status).toBe("authenticated");
     expect(s.user?.roles).toContain("admin");
     expect(s.token).not.toBeNull();
   });
 
-  it("rejects invalid credentials and stays unauthenticated", async () => {
-    await expect(
-      useAuthStore.getState().login({ username: "admin", password: "wrong" }),
-    ).rejects.toThrow();
+  it("rejects an invalid code and stays unauthenticated", async () => {
+    await expect(useAuthStore.getState().completeLineLogin("bad-code")).rejects.toThrow();
     expect(useAuthStore.getState().status).toBe("unauthenticated");
   });
 
   it("logout clears user, token and storage", async () => {
-    await useAuthStore.getState().login({ username: "user", password: "user" });
+    await useAuthStore.getState().completeLineLogin("fake-code-user");
     await useAuthStore.getState().logout();
     const s = useAuthStore.getState();
     expect(s.user).toBeNull();
@@ -59,14 +57,14 @@ describe("useAuthStore", () => {
   });
 
   it("clear() resets state synchronously without calling adapter", async () => {
-    await useAuthStore.getState().login({ username: "user", password: "user" });
+    await useAuthStore.getState().completeLineLogin("fake-code-user");
     useAuthStore.getState().clear();
     expect(useAuthStore.getState().status).toBe("unauthenticated");
     expect(localStorage.getItem("auth.token")).toBeNull();
   });
 
   it("init() restores an existing session from a valid token", async () => {
-    await useAuthStore.getState().login({ username: "admin", password: "admin" });
+    await useAuthStore.getState().completeLineLogin("fake-code-admin");
     useAuthStore.setState({ user: null, token: null, status: "idle" });
     await useAuthStore.getState().init();
     expect(useAuthStore.getState().status).toBe("authenticated");
@@ -80,7 +78,8 @@ describe("useAuthStore", () => {
 
   it("init() falls back to unauthenticated when adapter.me() rejects", async () => {
     setAuthAdapter({
-      login: async () => {
+      getLineLoginUrl: () => "/login/callback?code=unused",
+      completeLineLogin: async () => {
         throw new Error("unused");
       },
       logout: async () => {},
@@ -100,10 +99,10 @@ describe("useAuthStore", () => {
       vi.unstubAllEnvs();
     });
 
-    it("login() fails fast when the fake adapter is still active in production", async () => {
+    it("completeLineLogin() fails fast when the fake adapter is still active in production", async () => {
       vi.stubEnv("PROD", true);
       await expect(
-        useAuthStore.getState().login({ username: "admin", password: "admin" }),
+        useAuthStore.getState().completeLineLogin("fake-code-admin"),
       ).rejects.toThrow(/production/);
     });
 
@@ -115,14 +114,15 @@ describe("useAuthStore", () => {
     it("allows a real adapter in production", async () => {
       vi.stubEnv("PROD", true);
       setAuthAdapter({
-        login: async () => ({
+        getLineLoginUrl: () => "https://real.example.com/accounts/line/login/?process=login",
+        completeLineLogin: async () => ({
           user: { id: "9", name: "real", roles: ["user"] },
           token: "real-token",
         }),
         logout: async () => {},
         me: async () => null,
       });
-      await useAuthStore.getState().login({ username: "x", password: "y" });
+      await useAuthStore.getState().completeLineLogin("code-x");
       expect(useAuthStore.getState().status).toBe("authenticated");
     });
   });

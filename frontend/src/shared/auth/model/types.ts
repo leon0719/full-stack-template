@@ -4,11 +4,8 @@ export interface User {
   id: string;
   name: string;
   roles: Role[];
-}
-
-export interface Credentials {
-  username: string;
-  password: string;
+  displayName?: string;
+  pictureUrl?: string;
 }
 
 export interface AuthSession {
@@ -19,7 +16,8 @@ export interface AuthSession {
 export type AuthStatus = "idle" | "loading" | "authenticated" | "unauthenticated";
 
 export interface AuthAdapter {
-  login(credentials: Credentials): Promise<AuthSession>;
+  getLineLoginUrl(): string;
+  completeLineLogin(code: string): Promise<AuthSession>;
   logout(): Promise<void>;
   me(): Promise<AuthSession | null>;
 }
