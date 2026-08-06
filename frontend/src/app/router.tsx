@@ -48,6 +48,11 @@ const loginCallbackRoute = createRoute({
   path: "/login/callback",
   component: lazyRouteComponent(() => import("@/pages/login-callback"), "LoginCallbackPage"),
 });
+const logoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/logout",
+  component: lazyRouteComponent(() => import("@/pages/logout"), "LogoutPage"),
+});
 const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin",
@@ -60,7 +65,7 @@ const adminRoute = createRoute({
   component: lazyRouteComponent(() => import("@/pages/admin"), "AdminPage"),
 });
 
-const routeTree = rootRoute.addChildren([homeRoute, demoRoute, loginRoute, loginCallbackRoute, adminRoute]);
+const routeTree = rootRoute.addChildren([homeRoute, demoRoute, loginRoute, loginCallbackRoute, logoutRoute, adminRoute]);
 
 export function createAppRouter(options?: { history?: RouterHistory }) {
   return createRouter({

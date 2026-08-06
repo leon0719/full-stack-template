@@ -2,10 +2,9 @@ import { Link, Outlet } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/shared/auth";
 import { LanguageSwitcher } from "@/shared/i18n";
-import { Button } from "./button";
 
 export function AppLayout() {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { t } = useTranslation();
   return (
     <div className="min-h-screen flex flex-col">
@@ -18,9 +17,12 @@ export function AppLayout() {
           {isAuthenticated && (
             <>
               <span className="text-sm text-foreground/70">{user?.name}</span>
-              <Button size="sm" variant="outline" onClick={() => logout()}>
+              <Link
+                to="/logout"
+                className="inline-flex h-8 items-center justify-center rounded-md border border-foreground/20 bg-background px-3 text-xs font-medium transition-colors hover:bg-foreground/5"
+              >
                 {t("common.logout")}
-              </Button>
+              </Link>
             </>
           )}
         </div>
