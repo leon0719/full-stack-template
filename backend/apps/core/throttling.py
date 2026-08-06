@@ -18,10 +18,3 @@ class LoginThrottle(AnonRateThrottle):
 
     def __init__(self) -> None:
         super().__init__(settings.THROTTLE_LOGIN_RATE)
-
-
-class RegisterThrottle(AnonRateThrottle):
-    """Per-IP limiter for the register endpoint."""
-
-    def __init__(self) -> None:
-        super().__init__(settings.THROTTLE_REGISTER_RATE)

@@ -45,96 +45,8 @@ def test_throttle_ident_not_spoofable_when_num_proxies_set(monkeypatch):
 
 
 @pytest.mark.integration
-def test_register_returns_token(db):
-    client = Client()
-    resp = client.post(
-        "/auth/register",
-        data={"username": "carol", "email": "carol@example.com", "password": "pw-12345678"},
-        content_type="application/json",
-    )
-    assert resp.status_code == 201
-    assert resp.json()["token"]
-
-
-@pytest.mark.integration
-@pytest.mark.parametrize(
-    ("username", "password"),
-    [
-        ("numeric_nick", "3400987212"),  # entirely numeric → NumericPasswordValidator
-        ("shorty", "pw-1"),  # too short → MinimumLengthValidator
-        ("carlossantana", "carlossantana"),  # ≈ username → UserAttributeSimilarityValidator
-    ],
-)
-def test_register_rejects_weak_password(db, username, password):
-    """AUTH_PASSWORD_VALIDATORS must be enforced at register (create_user alone skips them)."""
-    from django.contrib.auth.models import User
-
-    resp = Client().post(
-        "/auth/register",
-        data={"username": username, "email": f"{username}@example.com", "password": password},
-        content_type="application/json",
-    )
-
-    assert resp.status_code == 422
-    body = resp.json()
-    assert body["detail"] == "Validation error"
-    assert all(error["loc"][-1] == "password" for error in body["errors"])
-    # The unified 422 handler must never echo the submitted password back.
-    assert password not in resp.content.decode()
-    assert not User.objects.filter(username=username).exists()
-
-
-@pytest.mark.integration
-def test_register_accepts_strong_password(db):
-    resp = Client().post(
-        "/auth/register",
-        data={"username": "strong_sam", "email": "sam@example.com", "password": "korrect-horse-battery"},
-        content_type="application/json",
-    )
-    assert resp.status_code == 201
-    assert resp.json()["token"]
-
-
-@pytest.mark.integration
-def test_register_duplicate_username_conflicts(user):
-    client = Client()
-    resp = client.post(
-        "/auth/register",
-        data={"username": user.username, "email": "dup@example.com", "password": "pw-12345678"},
-        content_type="application/json",
-    )
-    assert resp.status_code == 409
-
-
-@pytest.mark.integration
-def test_login_then_access_me(user):
-    client = Client()
-    login = client.post(
-        "/auth/login",
-        data={"username": "alice", "password": "pw-12345678"},
-        content_type="application/json",
-    )
-    assert login.status_code == 200
-    token = login.json()["token"]
-
-    me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert me.status_code == 200
-    assert me.json()["username"] == "alice"
-
-
-@pytest.mark.integration
 def test_me_requires_auth(db):
     resp = Client().get("/auth/me")
-    assert resp.status_code == 401
-
-
-@pytest.mark.integration
-def test_login_bad_credentials(user):
-    resp = Client().post(
-        "/auth/login",
-        data={"username": "alice", "password": "wrong"},
-        content_type="application/json",
-    )
     assert resp.status_code == 401
 
 
@@ -336,3 +248,53 @@ def test_get_login_redirect_url_issues_token_and_exchange_code(user, rf, setting
     code = url.split("code=", 1)[1]
     token = AuthService.consume_line_exchange_code(code)
     assert token
+
+
+@pytest.mark.integration
+def test_line_exchange_returns_token(user):
+    from apps.accounts.services import AuthService
+
+    token = AuthService.issue_token(user)
+    code = AuthService.issue_line_exchange_code(token)
+
+    resp = Client().post("/auth/line/exchange", data={"code": code}, content_type="application/json")
+
+    assert resp.status_code == 200
+    assert resp.json()["token"] == token
+
+
+@pytest.mark.integration
+def test_line_exchange_rejects_unknown_code(db):
+    resp = Client().post("/auth/line/exchange", data={"code": "bogus"}, content_type="application/json")
+    assert resp.status_code == 401
+
+
+@pytest.mark.integration
+def test_me_includes_line_profile_when_present(user, auth_headers):
+    from apps.accounts.models import LineProfile
+
+    LineProfile.objects.create(user=user, line_user_id="U1", display_name="Alice L", picture_url="https://x/a.jpg")
+
+    resp = Client().get("/auth/me", headers=auth_headers)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["display_name"] == "Alice L"
+    assert body["picture_url"] == "https://x/a.jpg"
+
+
+@pytest.mark.integration
+def test_me_omits_line_profile_when_absent(user, auth_headers):
+    resp = Client().get("/auth/me", headers=auth_headers)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["display_name"] is None
+    assert body["picture_url"] is None
+
+
+@pytest.mark.integration
+def test_register_and_login_endpoints_are_gone(db):
+    client = Client()
+    assert client.post("/auth/register", data={}, content_type="application/json").status_code == 404
+    assert client.post("/auth/login", data={}, content_type="application/json").status_code == 404
