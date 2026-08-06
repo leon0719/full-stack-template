@@ -52,7 +52,14 @@ describe("router", () => {
     });
   });
 
-  it("renders a 404 page for unknown paths", async () => {
+  it("redirects an unauthenticated visitor from an unmatched path to /login", async () => {
+    const { testRouter } = renderAt("/does-not-exist");
+    await waitFor(() => {
+      expect(testRouter.state.location.pathname).toBe("/login");
+    });
+  });
+
+  it("renders a 404 page for unknown paths when authenticated", async () => {
     localStorage.setItem("auth.token", "fake-token-user");
     const { findByText } = renderAt("/does-not-exist");
     expect(await findByText(/404/)).toBeInTheDocument();
