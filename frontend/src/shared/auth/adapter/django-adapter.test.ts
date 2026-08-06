@@ -71,4 +71,75 @@ describe("djangoAuthAdapter", () => {
     const { djangoAuthAdapter } = await import("./django-adapter");
     await expect(djangoAuthAdapter.completeLineLogin("bad-code")).rejects.toThrow(/invalid or expired code/i);
   });
+
+  it("me() returns null without calling the API when no token is persisted", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const { djangoAuthAdapter } = await import("./django-adapter");
+    await expect(djangoAuthAdapter.me()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("me() restores the session from a persisted token", async () => {
+    localStorage.setItem("auth.token", "tok-restored");
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: 7, username: "alice", email: "alice@example.com", display_name: "Alice Smith", picture_url: "https://example.com/alice.jpg" }),
+          { status: 200 },
+        ),
+      );
+
+    const { djangoAuthAdapter } = await import("./django-adapter");
+    const session = await djangoAuthAdapter.me();
+
+    expect(session).toEqual({
+      user: {
+        id: "7",
+        name: "alice",
+        roles: ["user"],
+        displayName: "Alice Smith",
+        pictureUrl: "https://example.com/alice.jpg",
+      },
+      token: "tok-restored",
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://api.example.com/auth/me", expect.any(Object));
+  });
+
+  it("me() clears the stored token and returns null when /auth/me responds 401", async () => {
+    localStorage.setItem("auth.token", "tok-expired");
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Invalid token" }), { status: 401 }),
+    );
+
+    const { djangoAuthAdapter } = await import("./django-adapter");
+    await expect(djangoAuthAdapter.me()).resolves.toBeNull();
+    expect(localStorage.getItem("auth.token")).toBeNull();
+  });
+
+  it("logout() revokes the token server-side and clears local storage", async () => {
+    localStorage.setItem("auth.token", "tok-1");
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Logged out" }), { status: 200 }));
+
+    const { djangoAuthAdapter } = await import("./django-adapter");
+    await djangoAuthAdapter.logout();
+
+    expect(localStorage.getItem("auth.token")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.com/auth/logout",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("logout() clears local storage even when the revoke request fails", async () => {
+    localStorage.setItem("auth.token", "tok-1");
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("network down"));
+
+    const { djangoAuthAdapter } = await import("./django-adapter");
+    await expect(djangoAuthAdapter.logout()).rejects.toThrow("network down");
+    expect(localStorage.getItem("auth.token")).toBeNull();
+  });
 });
