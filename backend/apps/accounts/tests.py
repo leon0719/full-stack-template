@@ -205,3 +205,17 @@ def test_line_login_redirects_using_settings_config(db, settings):
     resp = Client().post("/accounts/line/login/", {})
     assert resp.status_code == 302
     assert "access.line.me" in resp["Location"]
+
+
+@pytest.mark.unit
+def test_line_profile_str_and_getattr_fallback(user):
+    from apps.accounts.models import LineProfile
+
+    assert getattr(user, "line_profile", None) is None
+
+    profile = LineProfile.objects.create(
+        user=user, line_user_id="U1234", display_name="Alice", picture_url="https://example.com/a.jpg"
+    )
+    user.refresh_from_db()
+    assert user.line_profile == profile
+    assert str(profile) == f"LineProfile(user_id={user.id})"

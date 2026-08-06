@@ -20,3 +20,24 @@ class AuthToken(models.Model):
 
     def __str__(self) -> str:
         return f"AuthToken(user_id={self.user_id})"
+
+
+class LineProfile(models.Model):
+    """Profile data captured from LINE Login (display name + avatar).
+
+    Refreshed on every login by ``apps.accounts.adapters`` — the fields always
+    reflect what LINE returned most recently, never a user-edited value.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="line_profile",
+    )
+    line_user_id = models.CharField(max_length=64, unique=True)
+    display_name = models.CharField(max_length=255, blank=True)
+    picture_url = models.URLField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"LineProfile(user_id={self.user_id})"
