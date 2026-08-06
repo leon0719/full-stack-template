@@ -60,7 +60,10 @@ make dev
 
 - **API base URL**：`frontend/.env.development` 設了
   `VITE_API_BASE_URL=http://localhost:8000`，dev 下前端直連後端。
-  要覆蓋時在 `frontend/` 建 `.env.local`（優先權較高）。
+  要覆蓋時在 `frontend/` 建 **`.env.development.local`**。注意 Vite 的優先序是
+  mode 專屬檔勝過通用檔：`.env.development.local` > `.env.development` >
+  `.env.local`，所以用 `.env.local` 覆蓋 dev 設定**不會生效**（會被
+  `.env.development` 蓋掉）。
 - **Auth**：`frontend/src/shared/auth/adapter/django-adapter.ts` 實作
   `AuthAdapter`（login/logout/me），對接後端 `apps/accounts` 的 opaque bearer
   token。`main.tsx` 啟動時 `setAuthAdapter(djangoAuthAdapter)`。
@@ -96,11 +99,20 @@ LINE Developers Console。用 cloudflared 的 quick tunnel 暫時開一個公開
    - 重啟後端讓設定生效：`make down && make up`
 4. 到 [LINE Developers Console](https://developers.line.biz/console/) 的對應 Channel，
    把 Callback URL 設為 `https://<random>.trycloudflare.com/accounts/line/login/callback/`
-5. 更新前端 `.env.local`（沒有就新建，複製 `.env.example`）：
+5. 更新前端 `frontend/.env.development.local`（沒有就新建）：
    ```
    VITE_API_BASE_URL=https://<random>.trycloudflare.com
    ```
+   **務必是 `.env.development.local`，不是 `.env.local`** —— Vite 的 mode 專屬檔
+   優先權高於通用檔，寫在 `.env.local` 會被 `.env.development` 的
+   `http://localhost:8000` 蓋掉，前端仍會打本機後端，`redirect_uri` 就會變成
+   `http://localhost:8000/...`，LINE 回你 `400 Invalid redirect_uri value`。
 6. 啟動前端：`make dev`，開 http://localhost:5173/login，點「使用 LINE 登入」。
+   若 dev server 本來就開著，**必須重啟** —— Vite 只在啟動時讀 env 檔。
+   驗證有吃到設定：
+   ```bash
+   curl -s http://localhost:5173/src/shared/config/env.ts | grep -o '"VITE_API_BASE_URL": "[^"]*"'
+   ```
 
 **注意**：`backend/config/settings/local.py` 已設定信任 tunnel 傳來的
 `X-Forwarded-Proto`（見該檔案註解），讓 allauth 產生的 `redirect_uri` 是
