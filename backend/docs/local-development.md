@@ -58,6 +58,9 @@ make install
 | `CELERY_BROKER_URL` | `redis://redis:6379/0` | dev compose 的 Redis |
 | `CACHE_URL` | `redis://redis:6379/1` | 與 broker 分開的 Redis DB；注意 `local.py` 測試時會改用 in-memory cache，所以測試不需要 Redis |
 | `ARTICLE_PUBLISHED_WEBHOOK_URL` | （空 = 停用） | 文章發布 webhook 的示範整合 |
+| `LINE_LOGIN_CHANNEL_ID` | （空 = 停用） | LINE Developers Console 的 channel id；本地測試流程見頂層 `docs/development.md` |
+| `LINE_LOGIN_CHANNEL_SECRET` | （空 = 停用） | LINE Developers Console 的 channel secret；本地測試流程見頂層 `docs/development.md` |
+| `FRONTEND_BASE_URL` | `http://localhost:5173` | LINE 登入完成後導回前端的網址 |
 | `DB_CONN_POOL` | `false` | psycopg3 連線池，本地用不到 |
 
 ### Tuning（皆有預設，整段可不設）

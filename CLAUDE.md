@@ -17,10 +17,15 @@ Monorepo 全端模板：`backend/`（Django Ninja + Celery，uv + Docker）＋
 
 ## 整合層（本 repo 相對兩個上游模板的新增物）
 
-- **Auth 串接**：`frontend/src/shared/auth/adapter/django-adapter.ts` 實作
-  `AuthAdapter` 直連後端 `/auth/*`（login 兩段式：POST /auth/login 取 token →
-  GET /auth/me 取 user）；`main.tsx` 啟動時 `setAuthAdapter(djangoAuthAdapter)`。
-  後端無角色概念 → adapter 固定 `roles: ["user"]`（RBAC 擴充點）。
+- **Auth 串接**：登入只有 LINE Login，無帳密登入。後端用 django-allauth 的
+  LINE provider（`SOCIALACCOUNT_ONLY=True`）處理與 LINE 的 OAuth 交換，自訂
+  adapter（`backend/apps/accounts/adapters.py`）把登入結果換成既有的 opaque
+  bearer token，存進一次性 exchange code（60 秒 TTL）後導回前端
+  `/login/callback?code=...`。前端 `django-adapter.ts` 的 `completeLineLogin(code)`
+  打 `POST /auth/line/exchange` 換 token，再沿用兩段式流程打 `GET /auth/me`。
+  `main.tsx` 啟動時 `setAuthAdapter(djangoAuthAdapter)`。後端無角色概念 →
+  adapter 固定 `roles: ["user"]`（RBAC 擴充點）。本地測試 LINE callback 需要
+  公開 HTTPS，見 `docs/development.md` 的 cloudflared 章節。
 - **dev 串接**：前端 `.env.development` 設 `VITE_API_BASE_URL=http://localhost:8000`
   跨源直連；後端 CORS dev 預設允許 5173，改 port 要同步。
 - **CI**：`.github/workflows/{backend,frontend}-ci.yml`，`paths` filter 各管各的；

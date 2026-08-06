@@ -79,6 +79,35 @@ make dev
    `apiGet/apiPost/...` 包 TanStack Query hook（已自動夾帶 Bearer token、
    401 自動清 session；或用 frontend 的 `scaffold-page` skill）。
 
+## LINE 登入本地測試（cloudflared quick tunnel）
+
+LINE Login 的 callback 需要公開 HTTPS URL，本機的 `localhost:8000` 無法直接註冊到
+LINE Developers Console。用 cloudflared 的 quick tunnel 暫時開一個公開網址：
+
+1. 啟動後端：`make up`
+2. 啟動 tunnel（另開一個 terminal）：
+   ```bash
+   cloudflared tunnel --url http://localhost:8000
+   ```
+   輸出會有一行 `https://<random>.trycloudflare.com` —— 這就是這次測試要用的網址。
+3. 更新 `backend/.env.local`：
+   - `ALLOWED_HOSTS` 加上該 tunnel hostname（例如
+     `localhost,127.0.0.1,0.0.0.0,host.docker.internal,<random>.trycloudflare.com`）
+   - 重啟後端讓設定生效：`make down && make up`
+4. 到 [LINE Developers Console](https://developers.line.biz/console/) 的對應 Channel，
+   把 Callback URL 設為 `https://<random>.trycloudflare.com/accounts/line/login/callback/`
+5. 更新前端 `.env.local`（沒有就新建，複製 `.env.example`）：
+   ```
+   VITE_API_BASE_URL=https://<random>.trycloudflare.com
+   ```
+6. 啟動前端：`make dev`，開 http://localhost:5173/login，點「使用 LINE 登入」。
+
+**注意**：quick tunnel 每次啟動網址都會變。每次重新測試都要重複步驟 2-5
+（更新 `ALLOWED_HOSTS`、LINE Console 的 Callback URL、前端 `VITE_API_BASE_URL`）。
+若要固定網址（省去每次更新的麻煩），改用 cloudflared 的具名 tunnel（需要一個
+掛到 Cloudflare 的網域）：`cloudflared tunnel login && cloudflared tunnel create <name>`，
+之後網址固定，只需設定一次。
+
 ## 疑難排解
 
 | 症狀 | 原因 / 處理 |
