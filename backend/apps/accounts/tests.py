@@ -219,3 +219,33 @@ def test_line_profile_str_and_getattr_fallback(user):
     user.refresh_from_db()
     assert user.line_profile == profile
     assert str(profile) == f"LineProfile(user_id={user.id})"
+
+
+@pytest.mark.unit
+def test_line_exchange_code_round_trips_to_the_token():
+    from apps.accounts.services import AuthService
+
+    code = AuthService.issue_line_exchange_code("raw-token-abc")
+    assert AuthService.consume_line_exchange_code(code) == "raw-token-abc"
+
+
+@pytest.mark.unit
+def test_line_exchange_code_is_single_use():
+    from ninja.errors import HttpError
+
+    from apps.accounts.services import AuthService
+
+    code = AuthService.issue_line_exchange_code("raw-token-abc")
+    AuthService.consume_line_exchange_code(code)
+    with pytest.raises(HttpError):
+        AuthService.consume_line_exchange_code(code)
+
+
+@pytest.mark.unit
+def test_line_exchange_code_unknown_code_rejected():
+    from ninja.errors import HttpError
+
+    from apps.accounts.services import AuthService
+
+    with pytest.raises(HttpError):
+        AuthService.consume_line_exchange_code("never-issued")
