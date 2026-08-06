@@ -101,16 +101,16 @@ def test_graceful_returns_default_after_retries():
 
 @pytest.mark.unit
 def test_validation_error_response_never_echoes_input():
-    """422 bodies must not contain the submitted values (e.g. a too-short password)."""
+    """422 bodies must not contain the submitted values."""
     resp = Client().post(
-        "/auth/register",
-        data={"username": "eve", "email": "not-an-email", "password": "hunter1"},
+        "/auth/line/exchange",
+        data={"code": {"leaked": "hunter1-secret"}},
         content_type="application/json",
     )
     assert resp.status_code == 422
     body = resp.json()
     assert body["detail"] == "Validation error"
-    assert "hunter1" not in resp.content.decode()
+    assert "hunter1-secret" not in resp.content.decode()
     for error in body["errors"]:
         assert set(error) <= {"type", "loc", "msg"}
 

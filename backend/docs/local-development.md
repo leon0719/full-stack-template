@@ -63,9 +63,8 @@ make install
 ### Tuning（皆有預設，整段可不設）
 
 `AUTH_TOKEN_TTL_DAYS`（7）、`THROTTLE_WRITE_RATE`（30/m）、
-`THROTTLE_LOGIN_RATE`（10/m）、`THROTTLE_REGISTER_RATE`（5/h）、
-`PAGE_SIZE`（20）、`MAX_PAGE_SIZE`（100）、`NINJA_NUM_PROXIES`（1）、
-`SENTRY_DSN`（空 = 停用）。
+`THROTTLE_LOGIN_RATE`（10/m）、`PAGE_SIZE`（20）、`MAX_PAGE_SIZE`（100）、
+`NINJA_NUM_PROXIES`（1）、`SENTRY_DSN`（空 = 停用）。
 
 > 改了 `.env.local` 之後要 `make down && make up`（或重啟該容器）才會生效——
 > 設定在 process 啟動時讀入。

@@ -101,7 +101,6 @@ class Settings(BaseSettings):
     # Throttle rates (Django Ninja rate strings, e.g. "30/m")
     THROTTLE_WRITE_RATE: str = "30/m"
     THROTTLE_LOGIN_RATE: str = "10/m"
-    THROTTLE_REGISTER_RATE: str = "5/h"
 
     # Pagination
     PAGE_SIZE: PositiveInt = 20
@@ -335,7 +334,6 @@ AUTH_TOKEN_TTL_DAYS = settings.AUTH_TOKEN_TTL_DAYS
 # ---------------------------------------------------------------------------
 THROTTLE_WRITE_RATE = settings.THROTTLE_WRITE_RATE
 THROTTLE_LOGIN_RATE = settings.THROTTLE_LOGIN_RATE
-THROTTLE_REGISTER_RATE = settings.THROTTLE_REGISTER_RATE
 
 # ---------------------------------------------------------------------------
 # Pagination (consumed by apps.core.pagination)
