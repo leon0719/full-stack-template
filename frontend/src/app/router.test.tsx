@@ -53,6 +53,7 @@ describe("router", () => {
   });
 
   it("renders a 404 page for unknown paths", async () => {
+    localStorage.setItem("auth.token", "fake-token-user");
     const { findByText } = renderAt("/does-not-exist");
     expect(await findByText(/404/)).toBeInTheDocument();
   });
@@ -73,5 +74,19 @@ describe("router", () => {
       expect(testRouter.state.location.pathname).toBe("/admin");
     });
     expect(useAuthStore.getState().status).toBe("authenticated");
+  });
+
+  it("redirects an unauthenticated visitor from / to /login", async () => {
+    const { testRouter } = renderAt("/");
+    await waitFor(() => {
+      expect(testRouter.state.location.pathname).toBe("/login");
+    });
+  });
+
+  it("does not redirect away from /login/callback while unauthenticated", async () => {
+    const { testRouter } = renderAt("/login/callback");
+    await waitFor(() => {
+      expect(testRouter.state.location.pathname).toBe("/login/callback");
+    });
   });
 });

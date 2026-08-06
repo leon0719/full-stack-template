@@ -20,7 +20,18 @@ function NotFoundPage() {
   );
 }
 
-const rootRoute = createRootRoute({ component: AppLayout });
+const PUBLIC_PATHS = new Set(["/login", "/login/callback"]);
+
+const rootRoute = createRootRoute({
+  component: AppLayout,
+  beforeLoad: async ({ location }) => {
+    await initAuth();
+    const authenticated = useAuthStore.getState().status === "authenticated";
+    if (!authenticated && !PUBLIC_PATHS.has(location.pathname)) {
+      throw redirect({ to: "/login" });
+    }
+  },
+});
 
 const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -56,12 +67,6 @@ const logoutRoute = createRoute({
 const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin",
-  beforeLoad: async () => {
-    await initAuth();
-    if (useAuthStore.getState().status !== "authenticated") {
-      throw redirect({ to: "/login" });
-    }
-  },
   component: lazyRouteComponent(() => import("@/pages/admin"), "AdminPage"),
 });
 
