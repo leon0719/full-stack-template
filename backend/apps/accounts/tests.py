@@ -249,3 +249,90 @@ def test_line_exchange_code_unknown_code_rejected():
 
     with pytest.raises(HttpError):
         AuthService.consume_line_exchange_code("never-issued")
+
+
+@pytest.mark.unit
+def test_populate_user_assigns_random_username():
+    from allauth.socialaccount.models import SocialAccount, SocialLogin
+    from django.contrib.auth.models import User
+
+    from apps.accounts.adapters import LineSocialAccountAdapter
+
+    account = SocialAccount(provider="line", uid="U-new-user", extra_data={"displayName": "New User"})
+    sociallogin = SocialLogin(user=User(), account=account)
+
+    user = LineSocialAccountAdapter().populate_user(request=None, sociallogin=sociallogin, data={})  # type: ignore[arg-type]
+
+    assert user.username
+    assert len(user.username) == 36  # uuid4 string length
+
+
+@pytest.mark.integration
+def test_save_user_creates_line_profile_for_new_signup(db, rf):
+    from allauth.socialaccount.models import SocialAccount, SocialLogin
+    from django.contrib.auth.models import User
+
+    from apps.accounts.adapters import LineSocialAccountAdapter
+    from apps.accounts.models import LineProfile
+
+    account = SocialAccount(
+        provider="line", uid="U-brand-new", extra_data={"displayName": "Brand New", "pictureUrl": "https://x/p.jpg"}
+    )
+    sociallogin = SocialLogin(user=User(username="placeholder"), account=account)
+    request = rf.get("/accounts/line/login/callback/")
+    # RequestFactory requests skip SessionMiddleware; allauth's own
+    # SocialLogin.save() -> setup_user_email() reads/writes
+    # request.session (dict-like .get()/[]=) regardless of our adapter. A
+    # plain dict satisfies that usage without pulling in real session
+    # middleware.
+    request.session = {}
+
+    adapter = LineSocialAccountAdapter()
+    user = adapter.save_user(request, sociallogin)
+
+    profile = LineProfile.objects.get(user=user)
+    assert profile.line_user_id == "U-brand-new"
+    assert profile.display_name == "Brand New"
+    assert profile.picture_url == "https://x/p.jpg"
+
+
+@pytest.mark.integration
+def test_pre_social_login_refreshes_profile_for_existing_user(user):
+    from allauth.socialaccount.models import SocialAccount, SocialLogin
+
+    from apps.accounts.adapters import LineSocialAccountAdapter
+    from apps.accounts.models import LineProfile
+
+    LineProfile.objects.create(user=user, line_user_id="U-existing", display_name="Old Name", picture_url="")
+
+    account = SocialAccount(
+        provider="line", uid="U-existing", extra_data={"displayName": "New Name", "pictureUrl": "https://x/new.jpg"}
+    )
+    sociallogin = SocialLogin(user=user, account=account)
+    sociallogin.state = {"process": "login"}
+    object.__setattr__(sociallogin, "is_existing", True) if False else None
+    # SocialLogin computes is_existing from a persisted SocialAccount id; fake it directly.
+    sociallogin.account.pk = 1
+
+    LineSocialAccountAdapter().pre_social_login(request=None, sociallogin=sociallogin)  # type: ignore[arg-type]
+
+    profile = LineProfile.objects.get(user=user)
+    assert profile.display_name == "New Name"
+    assert profile.picture_url == "https://x/new.jpg"
+
+
+@pytest.mark.integration
+def test_get_login_redirect_url_issues_token_and_exchange_code(user, rf, settings):
+    from apps.accounts.adapters import LineAccountAdapter
+    from apps.accounts.services import AuthService
+
+    settings.FRONTEND_BASE_URL = "https://frontend.example.com"
+    request = rf.get("/accounts/line/login/callback/")
+    request.user = user
+
+    url = LineAccountAdapter().get_login_redirect_url(request)
+
+    assert url.startswith("https://frontend.example.com/login/callback?code=")
+    code = url.split("code=", 1)[1]
+    token = AuthService.consume_line_exchange_code(code)
+    assert token
