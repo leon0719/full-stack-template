@@ -5,5 +5,12 @@ export function useAuth() {
   const status = useAuthStore((s) => s.status);
   const completeLineLogin = useAuthStore((s) => s.completeLineLogin);
   const logout = useAuthStore((s) => s.logout);
-  return { user, status, isAuthenticated: status === "authenticated", getLineLoginUrl, completeLineLogin, logout };
+  return {
+    user,
+    status,
+    isAuthenticated: status === "authenticated",
+    getLineLoginUrl,
+    completeLineLogin,
+    logout,
+  };
 }

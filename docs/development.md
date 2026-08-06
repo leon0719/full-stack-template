@@ -102,6 +102,12 @@ LINE Developers Console。用 cloudflared 的 quick tunnel 暫時開一個公開
    ```
 6. 啟動前端：`make dev`，開 http://localhost:5173/login，點「使用 LINE 登入」。
 
+**注意**：`backend/config/settings/local.py` 已設定信任 tunnel 傳來的
+`X-Forwarded-Proto`（見該檔案註解），讓 allauth 產生的 `redirect_uri` 是
+`https://` 而非 `http://`——若沒有這行，LINE 會拒絕請求並回報
+`redirect_uri` 不符（因為 Console 上註冊的是 `https://` 開頭的 callback
+URL）。這是 dev-only 設定，正式環境走 `prod.py` 各自的等效機制。
+
 **注意**：quick tunnel 每次啟動網址都會變。每次重新測試都要重複步驟 2-5
 （更新 `ALLOWED_HOSTS`、LINE Console 的 Callback URL、前端 `VITE_API_BASE_URL`）。
 若要固定網址（省去每次更新的麻煩），改用 cloudflared 的具名 tunnel（需要一個

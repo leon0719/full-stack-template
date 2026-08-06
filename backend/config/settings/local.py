@@ -23,3 +23,20 @@ CORS_ALLOW_ALL_ORIGINS = False
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
+# LINE Login local testing (cloudflared quick tunnel — see docs/development.md's
+# "LINE 登入本地測試" section) proxies HTTPS to the container over plain HTTP.
+# allauth builds its OAuth redirect_uri from request.build_absolute_uri(), which
+# follows request.scheme; without this, request.scheme stays "http" even though
+# the browser is on "https", so redirect_uri mismatches the https:// callback URL
+# registered in the LINE Developers Console and LINE rejects the request.
+#
+# uvicorn's own FORWARDED_ALLOW_IPS trust (uvicorn_run.py) only rewrites the ASGI
+# scope for requests from a trusted peer IP — cloudflared runs on the host, so the
+# container sees the docker bridge gateway as the peer, not 127.0.0.1. Rather than
+# widening FORWARDED_ALLOW_IPS (which also affects the trusted client IP used by
+# throttling), tell Django directly to trust X-Forwarded-Proto — the same setting
+# prod.py uses, but there the reverse proxy is the only way to reach the app at
+# all, whereas here nothing but the developer's own tunnel sits in front. Safe
+# because local dev is never exposed to the internet except through that tunnel.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

@@ -39,7 +39,9 @@ chmod 600 .env.prod        # 內含機密
 
 `ENV=prod` 時 `Settings` 有 fail-fast 驗證：placeholder `SECRET_KEY`（或長度
 < 50）、殘留 dev 預設值的 `ALLOWED_HOSTS` / `CORS_ALLOWED_ORIGINS` /
-`CELERY_BROKER_URL` / `CACHE_URL`，都會**直接拒絕開機**並說明原因，
+`CELERY_BROKER_URL` / `CACHE_URL`，以及未設定的 `LINE_LOGIN_CHANNEL_ID` /
+`LINE_LOGIN_CHANNEL_SECRET` / `FRONTEND_BASE_URL`（殘留 dev 預設
+`http://localhost:5173`），都會**直接拒絕開機**並說明原因，
 所以漏填會炸在啟動而不是上線後。
 
 | 變數 | 範例 | 說明 |
@@ -53,6 +55,9 @@ chmod 600 .env.prod        # 內含機密
 | `CSRF_TRUSTED_ORIGINS` | `https://api.your-domain.com` | API **自己的** https origin（Django admin 的 CSRF 檢查用）；必須含 `https://` scheme |
 | `CELERY_BROKER_URL` | `rediss://:pass@host:6380/0` | 生產 Redis（帶密碼；公網務必 TLS） |
 | `CACHE_URL` | `rediss://:pass@host:6380/1` | 與 broker 不同 DB index；throttle 計數器靠它 |
+| `LINE_LOGIN_CHANNEL_ID` | LINE Developers Console → Channel → Basic settings 的 Channel ID | LINE Login channel（登入唯一入口，沒有帳密登入） |
+| `LINE_LOGIN_CHANNEL_SECRET` | 同上 Channel secret | 同上 |
+| `FRONTEND_BASE_URL` | `https://your-frontend.com` | LINE 登入完成後導回前端的 origin（不可殘留 dev 預設 `http://localhost:5173`）；即 `AuthAdapter` 拿 exchange code 的 `/login/callback` 所在頁面 |
 | `DOMAIN` | `api.your-domain.com` | Caddy 對外站台域名（[Cloudflare 端設定](caddy.md#步驟一cloudflare-端)）。compose 變數替換讀取，非 `Settings` 欄位 |
 | `NINJA_NUM_PROXIES` | `2` | 信任的反代層數：Cloudflare edge + Caddy 共 2 層。**設錯 per-IP 節流會失效**，改變拓撲時必須重算 |
 | `FORWARDED_ALLOW_IPS` | `172.16.0.0/12` | 信任哪些 proxy 的 `X-Forwarded-*`。預設值即對應內建 caddy（compose bridge 網段）；**設錯 per-IP 節流會失效**，換反代時必看 `.env.prod.example` 的說明 |
@@ -88,6 +93,11 @@ vim .env.prod
 
 # 3. Cloudflare 端：A record 橘雲指向本機 IP、SSL mode 設 Full；
 #    主機防火牆開 443（步驟見 docs/caddy.md 步驟一）
+
+# 3.5 LINE Developers Console → 對應 Channel → LINE Login → Callback URL
+#     加上 https://api.your-domain.com/accounts/line/login/callback/
+#     （少這一步，登入會在 LINE 端就被拒絕，Console 上會看到
+#     redirect_uri 不符的錯誤）
 
 # 4. 建置並啟動
 make prod-build

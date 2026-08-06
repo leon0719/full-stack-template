@@ -70,7 +70,14 @@ const adminRoute = createRoute({
   component: lazyRouteComponent(() => import("@/pages/admin"), "AdminPage"),
 });
 
-const routeTree = rootRoute.addChildren([homeRoute, demoRoute, loginRoute, loginCallbackRoute, logoutRoute, adminRoute]);
+const routeTree = rootRoute.addChildren([
+  homeRoute,
+  demoRoute,
+  loginRoute,
+  loginCallbackRoute,
+  logoutRoute,
+  adminRoute,
+]);
 
 export function createAppRouter(options?: { history?: RouterHistory }) {
   return createRouter({

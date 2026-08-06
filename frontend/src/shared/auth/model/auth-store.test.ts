@@ -101,9 +101,9 @@ describe("useAuthStore", () => {
 
     it("completeLineLogin() fails fast when the fake adapter is still active in production", async () => {
       vi.stubEnv("PROD", true);
-      await expect(
-        useAuthStore.getState().completeLineLogin("fake-code-admin"),
-      ).rejects.toThrow(/production/);
+      await expect(useAuthStore.getState().completeLineLogin("fake-code-admin")).rejects.toThrow(
+        /production/,
+      );
     });
 
     it("init() fails fast when the fake adapter is still active in production", async () => {

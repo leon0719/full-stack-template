@@ -356,6 +356,13 @@ SOCIALACCOUNT_ONLY = True
 # processes email verification rules during OAuth flow; set to "none" to skip
 # verification since LINE provides a verified email in the profile.
 ACCOUNT_EMAIL_VERIFICATION = "none"
+# The frontend's login link is a plain `<a href>` GET (see
+# frontend/src/pages/login/ui/login-page.tsx / django-adapter.ts) — it is not a
+# form POST. Without this, allauth's default (False) makes a GET to
+# /accounts/line/login/ render an interim "Continue" confirmation page
+# (socialaccount/login.html) instead of redirecting straight to LINE, breaking
+# the intended one-click full-page redirect.
+SOCIALACCOUNT_LOGIN_ON_GET = True
 ACCOUNT_ADAPTER = "apps.accounts.adapters.LineAccountAdapter"
 SOCIALACCOUNT_ADAPTER = "apps.accounts.adapters.LineSocialAccountAdapter"
 SOCIALACCOUNT_PROVIDERS = {

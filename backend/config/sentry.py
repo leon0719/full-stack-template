@@ -61,10 +61,11 @@ def init_sentry(
         traces_sample_rate=traces_sample_rate,
         profiles_sample_rate=profiles_sample_rate,
         send_default_pii=False,
-        # Never ship request bodies to Sentry: a 500 on /auth/login or
-        # /auth/register would otherwise carry the plaintext password. The
-        # request_id already correlates each event with the structured logs, so
-        # the body adds little debugging value against a real credential-leak risk.
+        # Never ship request bodies to Sentry: a 500 on /auth/line/exchange would
+        # otherwise carry the one-time exchange code (or, on other endpoints, any
+        # future secret-bearing payload). The request_id already correlates each
+        # event with the structured logs, so the body adds little debugging value
+        # against a real credential-leak risk.
         max_request_body_size="never",
         before_send=_before_send,
         before_send_transaction=_before_send_transaction,

@@ -104,7 +104,12 @@ curl -sI https://app.your-domain.com/login | head -3
 - [ ] migrate 已跑（prod compose 的 migrate job 會自動先跑）
 - [ ] 前端 build 用的 `VITE_API_BASE_URL` = API 對外網域
 - [ ] CloudFront SPA fallback（403/404 → /index.html）已設
-- [ ] 瀏覽器完成 login → me → logout 流程，無 CORS/mixed-content 錯誤
+- [ ] LINE Developers Console 的 Callback URL 已設為
+      `https://api.<domain>/accounts/line/login/callback/`（見
+      [backend/docs/deployment.md](../backend/docs/deployment.md) 步驟 3.5）
+- [ ] `.env.prod` 的 `LINE_LOGIN_CHANNEL_ID` / `LINE_LOGIN_CHANNEL_SECRET` /
+      `FRONTEND_BASE_URL` 已填（`_validate_prod` 缺一即拒絕開機）
+- [ ] 瀏覽器完成 LINE 登入 → me → logout 流程，無 CORS/mixed-content 錯誤
 - [ ] （建議）`/admin/` 已用 Caddyfile 的 IP allowlist 保護
       （見 [backend/docs/caddy.md](../backend/docs/caddy.md)）
 

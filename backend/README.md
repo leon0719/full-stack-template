@@ -104,7 +104,7 @@ fails silently or insecurely if skipped:
    Docker secrets or an external secrets manager.
 
 3. **Get the proxy trust contract right, or per-IP throttling can be bypassed.**
-   Per-IP rate limits on `/auth/login` and `/auth/register` key on the client IP
+   The per-IP rate limit on `POST /auth/line/exchange` keys on the client IP
    derived from `X-Forwarded-For`. Two settings must agree with your actual topology:
    - `FORWARDED_ALLOW_IPS` — the proxy IP/CIDR uvicorn trusts for `X-Forwarded-*`.
      The example value (`172.16.0.0/12`) matches the shipped caddy service.
@@ -138,7 +138,7 @@ config/            # Project config: settings, urls, celery, logging, exceptions
 apps/
   core/            # Shared Celery tasks + TimestampedModel mixin
   health/          # Health/readiness endpoints
-  accounts/        # Example: token auth/authz (register/login/logout/me)
+  accounts/        # Example: token auth/authz (LINE login exchange/logout/me)
   articles/        # Example: CRUD + ownership + pagination + throttle + task
 scripts/           # Dev utilities (version bump, unused-code scan)
 docker/            # Dockerfiles + compose files (dev / prod)
@@ -146,10 +146,11 @@ docker/            # Dockerfiles + compose files (dev / prod)
 
 ### Example Endpoints
 
-| Method | Path                  | Auth   | Notes                                   |
-| ------ | --------------------- | ------ | --------------------------------------- |
-| POST   | `/auth/register`      | —      | Returns a token; rate-limited (5/h/IP)  |
-| POST   | `/auth/login`         | —      | Returns a token; rate-limited (10/m/IP) |
+| Method | Path                                    | Auth   | Notes                                   |
+| ------ | ---------------------------------------- | ------ | --------------------------------------- |
+| GET    | `/accounts/line/login/`                  | —      | Starts the allauth LINE OAuth flow (redirects to LINE) |
+| GET    | `/accounts/line/login/callback/`         | —      | LINE OAuth callback; redirects to the frontend with a one-time exchange code |
+| POST   | `/auth/line/exchange`                    | —      | One-time exchange code → bearer token; rate-limited (10/m/IP) |
 | POST   | `/auth/logout`        | Bearer | Revokes all of the user's tokens        |
 | GET    | `/auth/me`            | Bearer | Current user profile                    |
 | GET    | `/articles`           | Bearer | Own articles; `?page=&page_size=&status=&q=` |
@@ -158,7 +159,8 @@ docker/            # Dockerfiles + compose files (dev / prod)
 | PATCH  | `/articles/{id}`      | Bearer | Partial update; publish fires a task    |
 | DELETE | `/articles/{id}`      | Bearer | 204 on success                          |
 
-Auth uses an opaque bearer token: `Authorization: Bearer <token>` from register/login.
+Auth uses an opaque bearer token: `Authorization: Bearer <token>`, issued via the LINE
+login exchange above (there is no username/password login).
 
 See [`CLAUDE.md`](./CLAUDE.md) for architecture details, app layering conventions, and
 the checklist for adding a new app.

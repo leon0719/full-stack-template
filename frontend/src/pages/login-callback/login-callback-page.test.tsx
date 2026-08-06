@@ -9,6 +9,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import { setAuthAdapter, useAuthStore } from "@/shared/auth";
+import * as sharedLib from "@/shared/lib";
 import { LoginCallbackPage } from "./ui/login-callback-page";
 
 describe("LoginCallbackPage", () => {
@@ -46,5 +47,22 @@ describe("LoginCallbackPage", () => {
 
     expect(await screen.findByText(/登入失敗|failed/i)).toBeInTheDocument();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("reports the error when the exchange fails, so it's diagnosable in production", async () => {
+    const reportErrorSpy = vi.spyOn(sharedLib, "reportError").mockImplementation(() => {});
+    const error = new Error("Invalid or expired code");
+    setAuthAdapter({
+      getLineLoginUrl: () => "",
+      completeLineLogin: vi.fn().mockRejectedValue(error),
+      logout: vi.fn(),
+      me: vi.fn(),
+    });
+
+    render(<LoginCallbackPage />);
+
+    await waitFor(() =>
+      expect(reportErrorSpy).toHaveBeenCalledWith(error, { source: "login-callback" }),
+    );
   });
 });

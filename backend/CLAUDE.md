@@ -90,11 +90,16 @@ Keep each layer in its own module so logic stays testable and HTTP concerns stay
 4. Add tests in `apps/<name>/tests.py`, mark with `@pytest.mark.unit` or `@pytest.mark.integration`
 
 ### Example Apps (reference implementations of the conventions above)
-- **`apps/accounts`** — token auth/authz. Opaque bearer tokens (`secrets` + SHA-256
-  digest stored, raw token shown once). `authentication.BearerAuth` (a ninja `HttpBearer`)
-  sets `request.auth`/`request.user`. Endpoints: `POST /auth/register`, `POST /auth/login`,
-  `POST /auth/logout`, `GET /auth/me`. register/login are IP rate-limited via
-  `ninja.throttling.AnonRateThrottle`.
+- **`apps/accounts`** — token auth/authz. Login is LINE-only (django-allauth
+  `socialaccount` provider, no username/password): `GET /accounts/line/login/` +
+  `GET /accounts/line/login/callback/` (allauth-owned) redirect back to the
+  frontend with a one-time exchange code, which `POST /auth/line/exchange`
+  (IP rate-limited via `apps.core.throttling.LoginThrottle`, an
+  `ninja.throttling.AnonRateThrottle`) trades for an opaque bearer token
+  (`secrets` + SHA-256 digest stored, raw token shown once). Custom adapters
+  in `adapters.py` wire allauth's OAuth client into this token system.
+  `authentication.BearerAuth` (a ninja `HttpBearer`) sets `request.auth`/`request.user`
+  for `POST /auth/logout`, `GET /auth/me`.
 - **`apps/articles`** — CRUD resource showing the full stack: router-level `auth=BearerAuth()`,
   owner-scoped queries with `get_owned_or_404()` (IDOR → 404), `ninja.pagination`
   (`@paginate(StandardPagination)`, `?page=&page_size=` capped at `MAX_PAGE_SIZE`),

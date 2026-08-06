@@ -12,11 +12,12 @@ import uuid
 from typing import Any, cast
 
 from allauth.account.adapter import DefaultAccountAdapter
+from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialLogin
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponseRedirect
 from loguru import logger
 
 from apps.accounts.models import LineProfile
@@ -47,6 +48,27 @@ class LineSocialAccountAdapter(DefaultSocialAccountAdapter):
         user = super().save_user(request, sociallogin, form)
         self._upsert_profile(sociallogin)
         return user
+
+    def on_authentication_error(
+        self,
+        request: HttpRequest,
+        provider,
+        error: Any = None,
+        exception: Exception | None = None,
+        extra_context: dict[str, Any] | None = None,
+    ) -> None:
+        # Default behaviour renders socialaccount/authentication_error.html from
+        # the BACKEND origin — the user (e.g. after tapping "Cancel" on LINE's
+        # consent screen, or an OAuth exchange failure) would be stranded there
+        # with no way back to the SPA. Redirect to the frontend instead. Log the
+        # error/exception only — never anything credential-shaped (no tokens,
+        # no request body).
+        logger.warning(
+            "[Adapter] LINE authentication error - error: {error}, exception: {exception}",
+            error=error,
+            exception=exception,
+        )
+        raise ImmediateHttpResponse(HttpResponseRedirect(f"{settings.FRONTEND_BASE_URL}/login?error=line_auth_failed"))
 
     @staticmethod
     def _upsert_profile(sociallogin: SocialLogin) -> None:

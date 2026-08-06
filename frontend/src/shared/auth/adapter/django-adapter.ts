@@ -59,7 +59,9 @@ export const djangoAuthAdapter: AuthAdapter = {
       body: JSON.stringify({ code }),
     });
     if (!res.ok) {
-      throw new Error(await extractErrorMessage(res, `POST /auth/line/exchange failed with ${res.status}`));
+      throw new Error(
+        await extractErrorMessage(res, `POST /auth/line/exchange failed with ${res.status}`),
+      );
     }
     const { token } = (await res.json()) as { token: string };
     const user = await fetchMe(token);

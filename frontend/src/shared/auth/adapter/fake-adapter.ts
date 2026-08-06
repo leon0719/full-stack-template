@@ -4,11 +4,23 @@ import type { AuthAdapter, AuthSession, User } from "../model/types";
 const ACCOUNTS: Record<string, { user: User; token: string }> = {
   "fake-token-admin": {
     token: "fake-token-admin",
-    user: { id: "1", name: "admin", roles: ["admin", "user"], displayName: "Admin Demo", pictureUrl: undefined },
+    user: {
+      id: "1",
+      name: "admin",
+      roles: ["admin", "user"],
+      displayName: "Admin Demo",
+      pictureUrl: undefined,
+    },
   },
   "fake-token-user": {
     token: "fake-token-user",
-    user: { id: "2", name: "user", roles: ["user"], displayName: "User Demo", pictureUrl: undefined },
+    user: {
+      id: "2",
+      name: "user",
+      roles: ["user"],
+      displayName: "User Demo",
+      pictureUrl: undefined,
+    },
   },
 };
 

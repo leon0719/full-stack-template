@@ -3,6 +3,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/shared/auth";
+import { reportError } from "@/shared/lib";
 
 export function LoginCallbackPage() {
   const { completeLineLogin } = useAuth();
@@ -22,7 +23,10 @@ export function LoginCallbackPage() {
     }
     completeLineLogin(code)
       .then(() => navigate({ to: "/" }))
-      .catch(() => setError(t("auth.login.callbackFailed")));
+      .catch((err: unknown) => {
+        reportError(err, { source: "login-callback" });
+        setError(t("auth.login.callbackFailed"));
+      });
   }, [completeLineLogin, navigate, search.code, t]);
 
   return (

@@ -111,10 +111,13 @@ def test_line_login_redirects_using_settings_config(db, settings):
     # to verify settings-based config works WITHOUT a database row.
     SocialApp.objects.filter(provider="line").delete()
 
-    # django-allauth's OAuth flow redirects on POST to the provider's authorize endpoint.
+    # The frontend's LINE login link is a plain GET <a href> (not a form POST) —
+    # exercise that exact path. This requires SOCIALACCOUNT_LOGIN_ON_GET = True
+    # in settings; without it, allauth renders an interim confirmation page on
+    # GET instead of redirecting (see config/settings/base.py).
     # The SOCIALACCOUNT_PROVIDERS["line"]["APP"] is already configured in settings
     # (loaded from LINE_LOGIN_CHANNEL_ID/SECRET env vars in conftest/test env setup).
-    resp = Client().post("/accounts/line/login/", {})
+    resp = Client().get("/accounts/line/login/?process=login")
     assert resp.status_code == 302
     assert "access.line.me" in resp["Location"]
 
@@ -222,9 +225,9 @@ def test_pre_social_login_refreshes_profile_for_existing_user(user):
     )
     sociallogin = SocialLogin(user=user, account=account)
     sociallogin.state = {"process": "login"}
-    object.__setattr__(sociallogin, "is_existing", True) if False else None
-    # SocialLogin computes is_existing from a persisted SocialAccount id; fake it directly.
-    sociallogin.account.pk = 1
+    # SocialLogin.is_existing actually keys off `user.pk` (see
+    # allauth/socialaccount/models.py), not `account.pk` — the `user` fixture is
+    # already a saved row, so is_existing is True here with no extra setup needed.
 
     LineSocialAccountAdapter().pre_social_login(request=None, sociallogin=sociallogin)  # type: ignore[arg-type]
 
@@ -298,3 +301,37 @@ def test_register_and_login_endpoints_are_gone(db):
     client = Client()
     assert client.post("/auth/register", data={}, content_type="application/json").status_code == 404
     assert client.post("/auth/login", data={}, content_type="application/json").status_code == 404
+
+
+@pytest.mark.unit
+def test_on_authentication_error_redirects_to_frontend_login(settings):
+    from allauth.core.exceptions import ImmediateHttpResponse
+
+    from apps.accounts.adapters import LineSocialAccountAdapter
+
+    settings.FRONTEND_BASE_URL = "https://frontend.example.com"
+
+    with pytest.raises(ImmediateHttpResponse) as exc_info:
+        LineSocialAccountAdapter().on_authentication_error(request=None, provider=None, error="access_denied")  # type: ignore[arg-type]
+
+    response = exc_info.value.response
+    assert response.status_code == 302
+    assert response["Location"] == "https://frontend.example.com/login?error=line_auth_failed"
+
+
+@pytest.mark.integration
+def test_authentication_error_view_redirects_browser_to_frontend_login(db, settings):
+    """End-to-end: allauth's error path (e.g. user cancels LINE consent) lands
+    the browser back on the SPA, not on an unstyled backend-origin page."""
+    from allauth.socialaccount.helpers import render_authentication_error
+
+    settings.FRONTEND_BASE_URL = "https://frontend.example.com"
+
+    from django.test import RequestFactory
+
+    request = RequestFactory().get("/accounts/line/login/callback/")
+
+    response = render_authentication_error(request, provider="line")
+
+    assert response.status_code == 302
+    assert response["Location"] == "https://frontend.example.com/login?error=line_auth_failed"
