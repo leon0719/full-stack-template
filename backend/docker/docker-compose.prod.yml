@@ -138,7 +138,7 @@ services:
   # Cloudflare IP 段）保留並帶進 api。設定步驟見 docs/caddy.md。
   # 不使用內建 Caddy（改自架 nginx 或雲端 LB）時，刪除本 service 即可。
   caddy:
-    image: caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
+    image: caddy:2.11.4@sha256:df7f1c2fb114453b951de51a98efc010db1655a92c2e86be6706714e2417a78d
     restart: unless-stopped
     ports:
       - "80:80"
