@@ -6,7 +6,7 @@ repos:
     hooks:
       - id: ruff-format
         files: ^backend/
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
         files: ^backend/
 
