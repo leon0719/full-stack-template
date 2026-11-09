@@ -263,7 +263,7 @@ def test_line_exchange_returns_token(user):
     resp = Client().post("/auth/line/exchange", data={"code": code}, content_type="application/json")
 
     assert resp.status_code == 200
-    assert resp.json()["token"] == token
+    assert resp.json()["data"]["token"] == token
 
 
 @pytest.mark.integration
@@ -281,7 +281,7 @@ def test_me_includes_line_profile_when_present(user, auth_headers):
     resp = Client().get("/auth/me", headers=auth_headers)
 
     assert resp.status_code == 200
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["display_name"] == "Alice L"
     assert body["picture_url"] == "https://x/a.jpg"
 
@@ -291,7 +291,7 @@ def test_me_omits_line_profile_when_absent(user, auth_headers):
     resp = Client().get("/auth/me", headers=auth_headers)
 
     assert resp.status_code == 200
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["display_name"] is None
     assert body["picture_url"] is None
 

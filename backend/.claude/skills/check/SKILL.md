@@ -11,21 +11,23 @@ hard failure with its output; otherwise run all four.
 ```bash
 uv run ruff format .          # format
 uv run ruff check --fix .     # lint (autofix)
-make type-check               # mypy — loads .env.local or dummy SECRET_KEY/DATABASE_URL
-SECRET_KEY=dummy DATABASE_URL="sqlite://:memory:" uv run pytest -q   # tests
+make type-check               # mypy
+make test-local               # pytest on in-memory SQLite
 ```
 
 ## Notes
 
-- `make type-check` already injects dummy env via the Makefile's `LOAD_LOCAL_ENV`, so it
-  works without a real `.env.local`.
-- Integration tests need a DB. Locally, the in-memory SQLite override above runs them
-  without Postgres. To exercise the real stack instead, use `make test` (runs in Docker).
-- If only quick feedback is wanted: `uv run pytest -m unit` (unit tests only).
+- `make type-check` / `make test-local` inject dummy `SECRET_KEY`/`DATABASE_URL`
+  via the Makefile's `LOAD_LOCAL_ENV` when `.env.local` is missing. Bare `uv run pytest` / `mypy`
+  fail at settings import on a fresh clone — always go through `make`.
+- To exercise the real stack (Postgres) instead, use `make test` (runs in Docker).
+- Quick feedback on one file: `make test-local TEST=apps/<app>/tests.py`.
 - Ruff rule set and per-file ignores live in `pyproject.toml`; don't add blanket `# noqa`
   — prefer fixing, or a targeted per-file-ignore if it's a framework idiom.
 
 ## Report format
 
 Summarize as: `ruff: OK · format: OK · mypy: OK · pytest: N passed`. For any failure,
-show the relevant lines and propose the fix.
+show the relevant lines and propose the fix. A step you didn't run is `⛔ not run: <reason>`,
+never `OK`. A failing test is either outdated or a real regression — say which; never
+decide on your own that a real regression is ignorable.

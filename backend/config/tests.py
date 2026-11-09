@@ -108,11 +108,10 @@ def test_validation_error_response_never_echoes_input():
         content_type="application/json",
     )
     assert resp.status_code == 422
-    body = resp.json()
-    assert body["detail"] == "Validation error"
+    error = resp.json()["error"]
+    assert error["reason"] == "validation_error"
+    assert error["message"].startswith("code:")
     assert "hunter1-secret" not in resp.content.decode()
-    for error in body["errors"]:
-        assert set(error) <= {"type", "loc", "msg"}
 
 
 def _access_record(args) -> logging.LogRecord:

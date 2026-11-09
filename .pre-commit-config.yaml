@@ -1,10 +1,14 @@
+# Monorepo 唯一的 git hook 設定（git 只有一個 .git/hooks，前後端共用）。
+# 安裝：在 repo 根目錄跑 `uv run --project backend pre-commit install`。
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.19
     hooks:
       - id: ruff-format
+        files: ^backend/
       - id: ruff
         args: [--fix]
+        files: ^backend/
 
   - repo: local
     hooks:
@@ -12,9 +16,19 @@ repos:
         name: mypy
         # Via make: it injects dummy SECRET_KEY/DATABASE_URL when .env.local is
         # absent — the django-stubs plugin imports settings, which need them.
-        entry: make type-check
+        entry: make -C backend type-check
         language: system
+        files: ^backend/
         types: [python]
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: frontend
+        name: frontend biome + tsc
+        entry: bash -c 'cd frontend && bun run lint && bun run type-check'
+        language: system
+        files: ^frontend/
         pass_filenames: false
 
   - repo: https://github.com/adamchainz/django-upgrade
@@ -22,6 +36,7 @@ repos:
     hooks:
       - id: django-upgrade
         args: [--target-version, "6.0"]
+        files: ^backend/
 
   # 機密外洩的第一道防線。detect-private-key(下方)只認得 PEM 私鑰,
   # 攔不到「.env 檔進版控」或高熵字串 —— 那正是 fastapi 模板 2026-07 的失效模式。

@@ -1,4 +1,4 @@
-.PHONY: help up down logs migrate createsuperuser dev check check-backend check-frontend deploy-frontend
+.PHONY: help up down logs migrate createsuperuser dev gen-api check check-backend check-frontend deploy-frontend
 
 help:
 	@echo "=========================================="
@@ -12,6 +12,7 @@ help:
 	@echo "  make migrate         - 執行資料庫遷移"
 	@echo "  make createsuperuser - 建立後端管理員帳號"
 	@echo "  make dev             - 啟動前端開發伺服器 (bun run dev)"
+	@echo "  make gen-api         - 後端 schema 變更後：重產前端 API 型別 (src/shared/api/schema.d.ts)"
 	@echo ""
 	@echo "品質檢查:"
 	@echo "  make check           - 前後端全部檢查"
@@ -40,6 +41,11 @@ createsuperuser:
 
 dev:
 	cd frontend && bun run dev
+
+# 後端 OpenAPI → 前端 TS 型別；改了後端 schema/endpoint 就跑，產物要 commit
+gen-api:
+	$(MAKE) -C backend openapi
+	cd frontend && bun run gen:api && rm openapi.json
 
 check-backend:
 	$(MAKE) -C backend all

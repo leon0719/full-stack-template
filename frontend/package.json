@@ -11,13 +11,10 @@
     "lint": "biome lint ./src",
     "lint:ci": "biome ci ./src",
     "lint:fsd": "steiger ./src",
-    "prepare": "simple-git-hooks",
     "type-check": "tsc -b",
     "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "simple-git-hooks": {
-    "pre-commit": "bun run lint && bun run type-check"
+    "test:watch": "vitest",
+    "gen:api": "openapi-typescript openapi.json -o src/shared/api/schema.d.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -54,7 +51,7 @@
     "@vitejs/plugin-react": "^6.0.2",
     "babel-plugin-react-compiler": "^1.0.0",
     "jsdom": "^29.1.1",
-    "simple-git-hooks": "^2.13.1",
+    "openapi-typescript": "^7.13.0",
     "steiger": "^0.5.13",
     "typescript": "~6.0.2",
     "vite": "^8.1.0",

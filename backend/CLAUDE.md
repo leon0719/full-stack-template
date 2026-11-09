@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 回應語言
+
+**一律使用繁體中文，採台灣本地化用語**——用 程式碼／資料／函式／物件／介面／型別／快取／預設／效能，
+不用 代碼／數據／函數／對象／接口／類型／緩存／默認／性能。即使以英文提問，回應仍用繁體中文。
+程式碼識別字、檔名、目錄名、套件名保持英文不翻譯。
+
+## Human-only operations ⛔
+
+Never run these yourself — stop and hand the exact command to the user:
+- Anything touching prod: `make prod-*`, `docker-compose.prod.yml`, connecting to a prod DB/Redis
+- `git push` (any branch), force-push, rewriting published history
+- Calling real third-party endpoints / webhooks (incl. real LINE Login), sending real email
+- Deleting or rewriting migrations that may already be applied anywhere
+
 ## Project Overview
 
 Django Ninja REST API template with Celery task queue, PostgreSQL, Redis, and Docker-based development. Uses `uv` as the package manager, Python 3.14+.
@@ -31,15 +45,14 @@ Django Ninja REST API template with Celery task queue, PostgreSQL, Redis, and Do
 ### Testing
 - `make test` — All tests (in Docker)
 - `make test TEST=apps/health/tests.py` — Single file
-- `make test-local` — Run tests locally (loads `.env.local`, falls back to dummy env)
+- `make test-local` — Fastest feedback: all tests locally on in-memory SQLite (no Docker needed)
 - `uv run pytest -m unit` — Run only unit tests (locally)
 - `uv run pytest -m "not slow"` — Exclude slow tests
 
 > `make type-check` / `test-local` / `makemigrations-local` load `.env.local` if present
 > and otherwise inject dummy `SECRET_KEY`/`DATABASE_URL`, because `config.settings.local`
-> instantiates the pydantic `Settings()` at import. Integration tests need a real DB
-> (Postgres in Docker); locally they also run against an in-memory SQLite via
-> `DATABASE_URL=sqlite://:memory:`.
+> instantiates the pydantic `Settings()` at import. `test-local` forces
+> `DATABASE_URL=sqlite://:memory:` (override with `TEST_DATABASE_URL`).
 
 ### Dependencies
 - `make install` — Install locally (for IDE support)
@@ -61,7 +74,15 @@ Client → Uvicorn (ASGI) → Django Ninja API (config/urls.py)
 ### Configuration (`config/`)
 - **Settings**: Pydantic Settings in `settings/base.py` reads from `.env.{ENV}` files. `local.py`/`prod.py` override specific values. All env vars flow through the `Settings` class — don't use raw `os.getenv()` in app code.
 - **Logging**: `logging.py` integrates loguru with Django's logging system via `LoguruHandler`. Uvicorn access logs filter out health check noise via `HealthCheckFilter`. Dev = colored stderr, prod = JSON (`serialize=True`).
-- **Exceptions**: `exceptions.py` registers unified JSON error handlers (422/401/404/500) on the NinjaAPI instance. The 500 handler logs via `logger.exception()`.
+- **Responses** (team contract, same as the FastAPI/.NET backends and the frontend `shared/api` client):
+  success `{"data": <T>, "error": null}`, failure `{"data": null, "error": {"code": <HTTP status>, "message", "reason"}}`.
+  Endpoints declare `response=BaseResponse[XxxResponse]` and `return BaseResponse(data=...)` (`apps/core/schema.py`);
+  delete → 200 + `BaseResponse()`, not 204. `/` and `/health/*` are probes, not wrapped. Lists: no `@paginate`
+  (its output can't be wrapped) — `page: StandardPagination.Input = Query(...)` +
+  `BaseResponse(data=StandardPagination().paginate_queryset(qs, page, request))` → `data: {items, count}`.
+- **Errors**: raise `AppError(status, ErrorCode.X, message)` (`config/errors.py`; client-branchable, becomes
+  `error.reason`) or plain `HttpError` (`reason: null`); `exceptions.py` renders the envelope and logs 500s via
+  `logger.exception()`. Never hand-build an error response.
 - **Entry point**: `uvicorn_run.py` at project root starts uvicorn with custom log config. Used by both dev and prod Docker.
 
 ### Health Check Endpoints (`apps/health/views.py`)
@@ -74,7 +95,7 @@ Client → Uvicorn (ASGI) → Django Ninja API (config/urls.py)
 Keep each layer in its own module so logic stays testable and HTTP concerns stay thin:
 - **views.py** — Django Ninja endpoints only. HTTP-layer delegation; no business logic.
 - **schema.py** — Ninja/Pydantic request & response schemas (validation).
-- **services.py** — business logic. Stateless; raises domain/`HttpError`; no `httpx`.
+- **services.py** — business logic. Stateless; raises `AppError`/`HttpError`; no `httpx`.
 - **external_services.py** — the *only* place third-party HTTP calls (`httpx`) live; wrap
   each call with `@handle_api_call` / `@handle_api_call_graceful` from
   `config/external_api_handler.py` (tenacity retry + loguru + `HttpError` translation).
@@ -101,15 +122,15 @@ Keep each layer in its own module so logic stays testable and HTTP concerns stay
   `authentication.BearerAuth` (a ninja `HttpBearer`) sets `request.auth`/`request.user`
   for `POST /auth/logout`, `GET /auth/me`.
 - **`apps/articles`** — CRUD resource showing the full stack: router-level `auth=BearerAuth()`,
-  owner-scoped queries with `get_owned_or_404()` (IDOR → 404), `ninja.pagination`
-  (`@paginate(StandardPagination)`, `?page=&page_size=` capped at `MAX_PAGE_SIZE`),
+  owner-scoped queries with `get_owned_or_404()` (IDOR → 404), `StandardPagination` inside
+  `BaseResponse` (`?page=&page_size=` capped at `MAX_PAGE_SIZE`),
   `FilterSchema` filtering (`?status=&q=`), `WriteRateThrottle` on writes, and a Celery
   side-effect claimed atomically (rows-affected UPDATE) on the draft→published transition.
   The publish task calls `external_services.notify_article_published_webhook()` — the
   reference `external_services.py` example (`@handle_api_call_graceful` + httpx, disabled
   when `ARTICLE_PUBLISHED_WEBHOOK_URL` is empty). Endpoints under `/articles`.
 
-Auth/throttle/pagination are all stock Django Ninja — no Knox/DRF/django-ratelimit. Throttle
+Auth/throttle/paginator classes are all stock Django Ninja — no Knox/DRF/django-ratelimit. Throttle
 counters use the Django cache (Redis in prod; in-memory in `local.py` so tests need no Redis).
 
 ### Background Tasks
@@ -145,6 +166,13 @@ args and keep them idempotent (broker uses `acks_late`). Celery Beat uses `Datab
 - Test markers: `unit`, `integration`, `slow` (strict markers enforced)
 - Shared test fixtures in `conftest.py`
 
+## Git
+
+- Commit 格式 `<type>: <中文說明>`，type 只有 `feat`／`fix`／`docs`／`style`／`refactor`／`test`／`chore`。
+  **說明用中文**、**不使用 scope**（不寫 `feat(auth):`）。
+- 破壞性變更（呼叫端不改程式就會壞）在 type 後加 `!`：`feat!: 移除 GET /articles 的 status 欄位`。
+- 分支 `<類型>/<描述>`，類型只有 `feat`／`fix`／`refactor`／`docs`／`chore`；不直接 commit 到 `main`。
+
 ## Project Skills (`.claude/skills/`)
 - **scaffold-app** — generate a new layered app (`apps/<name>/`), register it, make migration + tests.
 - **add-resource** — add a CRUD resource (schema/service/views) to an existing app.
@@ -163,6 +191,11 @@ args and keep them idempotent (broker uses `acks_late`). Celery Beat uses `Datab
 - `caddy.md` — Cloudflare 橘雲 + Caddy 設定（含 SSL mode、真實 client IP 與 /admin 保護）
 - `alerting.md` — 告警：Sentry→Slack alert rule、health 端點監控、beat 心跳、
   佇列積壓、CI 失敗通知（含上線檢查清單）
+- `api-standards.md` / `backend-standards.md` / `integration-standards.md` — 新增/修改
+  端點、app、第三方整合前先看：API 設計、架構/DB/機密、Celery/快取/SSE/WebSocket/Webhook
+  的慣例 checklist + 目前遵守狀態（源自上游 `django-ninja-backend-template`，已依本專案
+  現況調整——例如 SSE/WebSocket/效能測試段落標成未實作，因為本專案未引入 `apps/realtime`
+  / `perf/`）
 
 ### Alerting (`config/alerting.py` + `apps/core/tasks.py`)
 Sentry 只看得到「跑了而且丟出例外」的程式碼。壞掉卻安靜的故障（beat 死掉、

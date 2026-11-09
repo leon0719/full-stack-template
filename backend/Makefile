@@ -1,4 +1,4 @@
-.PHONY: all format lint type-check test test-local makemigrations-local coverage clean unused help audit
+.PHONY: all format lint type-check test test-local openapi makemigrations-local coverage clean unused help audit
 .PHONY: install update up down logs build rebuild
 .PHONY: migrate makemigrations shell createsuperuser
 .PHONY: docker-clean logs-api logs-db logs-worker logs-beat
@@ -196,9 +196,13 @@ type-check:
 	@echo "Running type checks with mypy..."
 	@bash -c '$(LOAD_LOCAL_ENV) uv run mypy .'
 
+# OpenAPI schema for the frontend type generator (root `make gen-api`); no running server needed.
+openapi:
+	@bash -c '$(LOAD_LOCAL_ENV) uv run python manage.py shell -c "import json; from config.urls import api; open(\"../frontend/openapi.json\", \"w\").write(json.dumps(api.get_openapi_schema(), indent=2))"'
+
 test-local:
 	@echo "Running tests locally..."
-	@bash -c '$(LOAD_LOCAL_ENV) uv run pytest $(TEST)'
+	@bash -c '$(LOAD_LOCAL_ENV) DATABASE_URL="$${TEST_DATABASE_URL:-sqlite://:memory:}" uv run pytest $(TEST)'
 
 makemigrations-local:
 	@bash -c '$(LOAD_LOCAL_ENV) uv run python manage.py makemigrations $(APP)'

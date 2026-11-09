@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "@/shared/auth";
-import { ApiError, apiGet, apiPost } from "./client";
+import { ApiError, apiGet, apiPatch, apiPost } from "./client";
 
 const ok = (body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -131,6 +131,49 @@ describe("api client", () => {
       payload: { message: "nope" },
     });
     expect((await apiGet("/bad").catch((e) => e)) instanceof ApiError).toBe(true);
+  });
+
+  it("reads message and reason from a BaseResponse error envelope", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: null,
+          error: { code: 409, message: "帳號重複", reason: "username_taken" },
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await expect(apiGet("/bad")).rejects.toMatchObject({
+      status: 409,
+      message: "帳號重複",
+      reason: "username_taken",
+    });
+  });
+
+  it("sets reason to null when the error has none", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{}", { status: 500, headers: { "Content-Type": "application/json" } }),
+    );
+    await expect(apiGet("/bad")).rejects.toMatchObject({ status: 500, reason: null });
+  });
+
+  it("unwraps BaseResponse data on success", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(ok({ data: { id: 1 }, error: null }));
+    expect(await apiGet<{ id: number }>("/items/1")).toEqual({ id: 1 });
+  });
+
+  it("does not unwrap {data, error} shapes from other origins", async () => {
+    const body = { data: { id: 1 }, error: null };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(ok(body));
+    expect(await apiGet("https://api.github.com/x")).toEqual(body);
+  });
+
+  it("sends PATCH with a JSON body", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ok({ data: null, error: null }));
+    await apiPatch("/items/1", { name: "y" });
+    const init = spy.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("PATCH");
+    expect(init.body).toBe(JSON.stringify({ name: "y" }));
   });
 
   it("clears the auth session on 401", async () => {

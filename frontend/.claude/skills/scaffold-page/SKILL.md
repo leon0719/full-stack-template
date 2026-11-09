@@ -28,14 +28,13 @@ export function <Pascal>Page() {
 export { <Pascal>Page } from "./ui/<name>-page";
 ```
 
-4. 在 `src/app/router.tsx` 註冊：
+4. 在 `src/app/router.tsx` 註冊（用 `lazyRouteComponent` 維持 code splitting，**不要**靜態 import page）：
 
 ```tsx
-import { <Pascal>Page } from "@/pages/<name>";
 const <camel>Route = createRoute({
   getParentRoute: () => rootRoute,
   path: "/<name>",
-  component: <Pascal>Page,
+  component: lazyRouteComponent(() => import("@/pages/<name>"), "<Pascal>Page"),
 });
 // 並把 <camel>Route 加進 rootRoute.addChildren([...])
 ```

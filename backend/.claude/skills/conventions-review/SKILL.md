@@ -14,7 +14,7 @@ suggest also running the built-in `/code-review`.
 ## Layering (apps/articles is the reference)
 
 - [ ] `views.py` is thin — HTTP only, delegates to a service. No ORM/business logic in views.
-- [ ] Business logic lives in `services.py`; raises `HttpError`, never returns HTTP responses.
+- [ ] Business logic lives in `services.py`; raises `AppError`/`HttpError`, never returns HTTP responses.
 - [ ] `httpx` appears ONLY in `external_services.py`, wrapped with
       `@handle_api_call` / `@handle_api_call_graceful` (no bare `httpx` in services/views).
 - [ ] Request/response shapes are in `schema.py` (`*Request` / `*Response` naming).
@@ -30,7 +30,10 @@ suggest also running the built-in `/code-review`.
 ## Database
 
 - [ ] List/iteration paths avoid N+1: `select_related` (FK) / `prefetch_related` (M2M/reverse).
-- [ ] New non-null columns have a `default` (or a 3-step nullable→backfill→non-null migration).
+- [ ] Migrations are expand/contract: prod runs `migrate` BEFORE the old containers are replaced,
+      so each migration must work with the previously deployed code still running. Drops/renames
+      ship in a later release, after code stops using the column/table; new NOT NULL columns go
+      nullable → backfill → add the constraint.
 - [ ] FKs declare explicit `on_delete` + `related_name`; indexes match real query paths.
 - [ ] Migration committed and `makemigrations --check` would be clean.
 - [ ] New model is registered in `admin.py`; every FK in `list_display` has
@@ -44,7 +47,9 @@ suggest also running the built-in `/code-review`.
 
 ## API surface
 
-- [ ] Pagination on list endpoints (`@paginate`); writes carry a sensible throttle.
+- [ ] Every `/api` endpoint declares `response=BaseResponse[...]` and returns `BaseResponse(data=...)`; delete → 200 + `BaseResponse()`.
+- [ ] Client-branchable errors use `AppError` with an `ErrorCode` (→ `error.reason`); no hand-built error JSON.
+- [ ] Pagination on list endpoints (`paginate_queryset` inside `BaseResponse`, not `@paginate`); writes carry a sensible throttle.
 - [ ] Returns `Status(code, body)` (not deprecated `(code, body)` tuples).
 - [ ] Correct status codes (201 create, 204 delete, 401 vs 403 vs 404, 422 validation).
 

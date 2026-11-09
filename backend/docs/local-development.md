@@ -118,7 +118,7 @@ make install
 | `make type-check` | `mypy .` |
 | `make unused` | vulture 掃未使用的程式碼 |
 
-也可裝 pre-commit hook，commit 時自動跑：`uv run pre-commit install`。
+也可裝 pre-commit hook，commit 時自動跑：在 **repo 根目錄**跑 `uv run --project backend pre-commit install`（設定檔是根目錄的 `.pre-commit-config.yaml`，前後端共用）。
 
 > **為什麼 `make type-check` / `test-local` 不用先設環境變數？**
 > Makefile 會先載入 `.env.local`（若存在），否則注入 dummy 的

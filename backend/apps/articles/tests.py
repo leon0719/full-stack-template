@@ -14,11 +14,11 @@ def test_create_and_list_article(user, auth_headers):
     client = Client()
     resp = _create(client, auth_headers, title="First", status="draft")
     assert resp.status_code == 201
-    assert resp.json()["owner_id"] == user.id
+    assert resp.json()["data"]["owner_id"] == user.id
 
     listed = client.get("/articles", headers=auth_headers)
     assert listed.status_code == 200
-    body = listed.json()
+    body = listed.json()["data"]
     assert body["count"] == 1
     assert body["items"][0]["title"] == "First"
 
@@ -31,11 +31,11 @@ def test_articles_require_auth(db):
 @pytest.mark.integration
 def test_owner_isolation_returns_404(user, auth_headers, other_auth_headers):
     client = Client()
-    created = _create(client, auth_headers, title="Mine").json()
+    created = _create(client, auth_headers, title="Mine").json()["data"]
 
     # Another user must not see or fetch it (IDOR -> 404, not 403/200).
     assert client.get(f"/articles/{created['id']}", headers=other_auth_headers).status_code == 404
-    assert client.get("/articles", headers=other_auth_headers).json()["count"] == 0
+    assert client.get("/articles", headers=other_auth_headers).json()["data"]["count"] == 0
 
 
 @pytest.mark.integration
@@ -45,7 +45,7 @@ def test_filter_by_status(user, auth_headers):
     _create(client, auth_headers, title="p", status="published")
 
     resp = client.get("/articles?status=published", headers=auth_headers)
-    items = resp.json()["items"]
+    items = resp.json()["data"]["items"]
     assert len(items) == 1
     assert items[0]["status"] == "published"
 
@@ -60,7 +60,7 @@ def test_publish_triggers_task(user, auth_headers, monkeypatch, django_capture_o
         lambda article_id: calls.append(article_id),
     )
     client = Client()
-    created = _create(client, auth_headers, title="draft", status="draft").json()
+    created = _create(client, auth_headers, title="draft", status="draft").json()["data"]
 
     with django_capture_on_commit_callbacks(execute=True):
         resp = client.patch(
@@ -88,7 +88,7 @@ def test_publish_triggers_task(user, auth_headers, monkeypatch, django_capture_o
 @pytest.mark.integration
 def test_patch_without_field_does_not_clear_it(user, auth_headers):
     client = Client()
-    created = _create(client, auth_headers, title="keep me", content="body").json()
+    created = _create(client, auth_headers, title="keep me", content="body").json()["data"]
 
     resp = client.patch(
         f"/articles/{created['id']}",
@@ -96,7 +96,7 @@ def test_patch_without_field_does_not_clear_it(user, auth_headers):
         content_type="application/json",
         headers=auth_headers,
     )
-    body = resp.json()
+    body = resp.json()["data"]
     assert resp.status_code == 200
     assert body["title"] == "keep me"  # exclude_unset: omitted fields untouched
     assert body["content"] == "changed"
@@ -112,7 +112,7 @@ def test_page_size_is_capped_at_max(user, auth_headers, settings):
     resp = Client().get("/articles?page_size=99999", headers=auth_headers)
 
     assert resp.status_code == 200
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["count"] == total
     assert len(body["items"]) == settings.MAX_PAGE_SIZE  # capped, not 99999
 
@@ -120,9 +120,9 @@ def test_page_size_is_capped_at_max(user, auth_headers, settings):
 @pytest.mark.integration
 def test_delete_article(user, auth_headers):
     client = Client()
-    created = _create(client, auth_headers, title="bye").json()
+    created = _create(client, auth_headers, title="bye").json()["data"]
     resp = client.delete(f"/articles/{created['id']}", headers=auth_headers)
-    assert resp.status_code == 204
+    assert resp.status_code == 200
     assert not Article.objects.filter(id=created["id"]).exists()
 
 

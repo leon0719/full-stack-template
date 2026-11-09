@@ -20,6 +20,13 @@ const makeStorage = (): Storage => {
   };
 };
 
+// 後端一律回 BaseResponse envelope:成功 { data, error: null }、失敗 { data: null, error }
+const ok = (data: unknown) => new Response(JSON.stringify({ data, error: null }), { status: 200 });
+const fail = (status: number, message: string, reason: string) =>
+  new Response(JSON.stringify({ data: null, error: { code: status, message, reason } }), {
+    status,
+  });
+
 describe("djangoAuthAdapter", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", makeStorage());
@@ -42,18 +49,15 @@ describe("djangoAuthAdapter", () => {
   it("exchanges a code for a token then fetches /auth/me", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "tok-123" }), { status: 200 }))
+      .mockResolvedValueOnce(ok({ token: "tok-123" }))
       .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            id: 1,
-            username: "u",
-            email: "",
-            display_name: "Alice",
-            picture_url: "https://x/a.jpg",
-          }),
-          { status: 200 },
-        ),
+        ok({
+          id: 1,
+          username: "u",
+          email: "",
+          display_name: "Alice",
+          picture_url: "https://x/a.jpg",
+        }),
       );
 
     const { djangoAuthAdapter } = await import("./django-adapter");
@@ -77,7 +81,7 @@ describe("djangoAuthAdapter", () => {
 
   it("throws when the exchange call fails", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ detail: "Invalid or expired code" }), { status: 401 }),
+      fail(401, "Invalid or expired code", "invalid_exchange_code"),
     );
 
     const { djangoAuthAdapter } = await import("./django-adapter");
@@ -97,16 +101,13 @@ describe("djangoAuthAdapter", () => {
   it("me() restores the session from a persisted token", async () => {
     localStorage.setItem("auth.token", "tok-restored");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          id: 7,
-          username: "alice",
-          email: "alice@example.com",
-          display_name: "Alice Smith",
-          picture_url: "https://example.com/alice.jpg",
-        }),
-        { status: 200 },
-      ),
+      ok({
+        id: 7,
+        username: "alice",
+        email: "alice@example.com",
+        display_name: "Alice Smith",
+        picture_url: "https://example.com/alice.jpg",
+      }),
     );
 
     const { djangoAuthAdapter } = await import("./django-adapter");
@@ -128,7 +129,7 @@ describe("djangoAuthAdapter", () => {
   it("me() clears the stored token and returns null when /auth/me responds 401", async () => {
     localStorage.setItem("auth.token", "tok-expired");
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ detail: "Invalid token" }), { status: 401 }),
+      fail(401, "Authentication required", "unauthenticated"),
     );
 
     const { djangoAuthAdapter } = await import("./django-adapter");
@@ -138,11 +139,7 @@ describe("djangoAuthAdapter", () => {
 
   it("logout() revokes the token server-side and clears local storage", async () => {
     localStorage.setItem("auth.token", "tok-1");
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ detail: "Logged out" }), { status: 200 }),
-      );
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(ok(null));
 
     const { djangoAuthAdapter } = await import("./django-adapter");
     await djangoAuthAdapter.logout();

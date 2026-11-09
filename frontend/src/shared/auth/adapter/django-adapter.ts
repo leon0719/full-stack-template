@@ -1,14 +1,10 @@
+import type { components } from "@/shared/api";
 import { env } from "@/shared/config";
 import { tokenStorage } from "../lib/token-storage";
 import type { AuthAdapter, User } from "../model/types";
 
-interface MeResponse {
-  id: number;
-  username: string;
-  email: string;
-  display_name: string | null;
-  picture_url: string | null;
-}
+// 型別由後端 OpenAPI 產生(`make gen-api`),不要手寫
+type MeResponse = components["schemas"]["MeResponse"];
 
 // 後端 accounts 尚無角色概念，固定給 "user"；接 RBAC 時在此對映後端的角色欄位。
 function toUser(me: MeResponse): User {
@@ -21,12 +17,16 @@ function toUser(me: MeResponse): User {
   };
 }
 
+// 後端回 BaseResponse:成功 { data, error: null }、失敗 { data: null, error: { code, message, reason } }。
+// 不走 shared/api 的 client(它 import shared/auth,會循環依賴),這裡自己解 envelope。
+async function readData<T>(res: Response): Promise<T> {
+  return ((await res.json()) as { data: T }).data;
+}
+
 async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
-    const payload: unknown = await res.json();
-    if (payload && typeof payload === "object" && "detail" in payload) {
-      return String((payload as { detail: unknown }).detail);
-    }
+    const payload = (await res.json()) as { error?: { message?: unknown } | null };
+    if (payload?.error?.message !== undefined) return String(payload.error.message);
   } catch {
     // 非 JSON body,用 fallback
   }
@@ -40,7 +40,7 @@ async function fetchMe(token: string): Promise<User | null> {
   if (res.status === 401) return null;
   if (!res.ok)
     throw new Error(await extractErrorMessage(res, `GET /auth/me failed with ${res.status}`));
-  return toUser((await res.json()) as MeResponse);
+  return toUser(await readData<MeResponse>(res));
 }
 
 // 串接 backend apps/accounts 的 opaque bearer token 認證。登入只能透過 LINE:
@@ -63,7 +63,7 @@ export const djangoAuthAdapter: AuthAdapter = {
         await extractErrorMessage(res, `POST /auth/line/exchange failed with ${res.status}`),
       );
     }
-    const { token } = (await res.json()) as { token: string };
+    const { token } = await readData<{ token: string }>(res);
     const user = await fetchMe(token);
     if (!user) throw new Error("Login succeeded but the issued token was rejected");
     tokenStorage.set(token);

@@ -1,1 +1,2 @@
-export { ApiError, apiDelete, apiGet, apiPost, apiPut } from "./client";
+export { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./client";
+export type { components, paths } from "./schema";

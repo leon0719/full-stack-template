@@ -9,10 +9,10 @@ from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.utils import timezone
 from loguru import logger
-from ninja.errors import HttpError
 
 from apps.accounts.models import AuthToken
 from apps.core.security import generate_token
+from config.errors import AppError, ErrorCode
 
 _LINE_EXCHANGE_CACHE_PREFIX = "line-exchange:"
 _LINE_EXCHANGE_CODE_TTL_SECONDS = 60
@@ -49,7 +49,7 @@ class AuthService:
         token = cache.get(key)
         if token is None:
             logger.warning("[Service] LINE exchange code invalid or expired")
-            raise HttpError(401, "Invalid or expired code")
+            raise AppError(401, ErrorCode.INVALID_EXCHANGE_CODE, "Invalid or expired code")
         cache.delete(key)
         return cast("str", token)
 

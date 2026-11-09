@@ -1,18 +1,32 @@
 import { useAuthStore } from "@/shared/auth";
 import { env } from "@/shared/config";
 
+// 團隊後端契約(Django Ninja / FastAPI / .NET 相同):
+// 成功 { data: T, error: null };失敗 { data: null, error: { code: <HTTP 狀態碼>, message, reason } }
+interface BaseResponse {
+  data: unknown;
+  error: { code: number; message: string; reason?: string | null } | null;
+}
+
+function isBaseResponse(payload: unknown): payload is BaseResponse {
+  return !!payload && typeof payload === "object" && "data" in payload && "error" in payload;
+}
+
 export class ApiError extends Error {
   readonly status: number;
+  /** 後端穩定的機器可讀錯誤碼(如 "username_taken");要分辨錯誤原因或當 i18n key 時用它,不要比對 message */
+  readonly reason: string | null;
   readonly payload: unknown;
   constructor(status: number, message: string, payload: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.reason = isBaseResponse(payload) ? (payload.error?.reason ?? null) : null;
     this.payload = payload;
   }
 }
 
-type Method = "GET" | "POST" | "PUT" | "DELETE";
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 function resolveUrl(path: string): string {
   if (path.startsWith("http")) return path;
@@ -26,6 +40,14 @@ function isApiOrigin(url: string): boolean {
     ? new URL(env.apiBaseUrl, location.origin).origin
     : location.origin;
   return new URL(url, location.origin).origin === apiOrigin;
+}
+
+// 支援兩種錯誤格式:頂層 { message } 與團隊後端的 BaseResponse { data, error: { code, message } }
+function errorMessage(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const p = payload as { message?: unknown; error?: { message?: unknown } | null };
+  const message = p.error?.message ?? p.message;
+  return message === undefined ? undefined : String(message);
 }
 
 async function parseBody(res: Response): Promise<unknown> {
@@ -62,13 +84,11 @@ async function request<T>(
   const payload = await parseBody(res);
   if (!res.ok) {
     if (res.status === 401 && trusted) useAuthStore.getState().clear();
-    const message =
-      payload && typeof payload === "object" && "message" in payload
-        ? String((payload as { message: unknown }).message)
-        : `${method} ${path} failed with ${res.status}`;
+    const message = errorMessage(payload) ?? `${method} ${path} failed with ${res.status}`;
     throw new ApiError(res.status, message, payload);
   }
-  return payload as T;
+  // 只解包自家 API 的 envelope;第三方回應即使長得像 {data, error} 也原樣回傳
+  return (trusted && isBaseResponse(payload) ? payload.data : payload) as T;
 }
 
 export function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
@@ -79,6 +99,9 @@ export function apiPost<T>(path: string, body?: unknown, init?: RequestInit): Pr
 }
 export function apiPut<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
   return request<T>("PUT", path, body, init);
+}
+export function apiPatch<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
+  return request<T>("PATCH", path, body, init);
 }
 export function apiDelete<T>(path: string, init?: RequestInit): Promise<T> {
   return request<T>("DELETE", path, undefined, init);

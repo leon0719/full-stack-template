@@ -7,7 +7,11 @@ description: Scaffold a new Django Ninja app following this project's layered co
 
 Create a new app under `apps/<name>/` that mirrors `apps/articles` (the canonical
 layered example). Ask the user for the app name and, if relevant, the main model's
-fields before generating.
+fields before generating. If any other convention is unclear, **ask first**, then apply the
+answer to every file at once — don't invent a rule per file.
+
+Write the layers **inside-out** — models → schema → services (+ tests pass) → views
+(+ tests pass) — not views first. For the resource itself, follow the **add-resource** steps.
 
 ## Layer files to create
 
@@ -36,7 +40,8 @@ Skip `tasks.py` / `external_services.py` if the app needs no background work or 
 - **Ownership / IDOR**: subclass `apps.core.services.OwnedResourceService` — its
   `get_owned_or_404(user, pk)` / `owned_qs(user)` give owner-scoped, IDOR-safe access
   (non-owners get 404, never 403/200). Don't hand-roll the lookup.
-- **Pagination**: `@paginate(StandardPagination)` from `apps.core.pagination` on list endpoints
+- **Responses**: `response=BaseResponse[XxxResponse]` + `return BaseResponse(data=...)` (`apps.core.schema`); delete → 200 + `BaseResponse()`
+- **Pagination**: `page: StandardPagination.Input = Query(...)` + `BaseResponse(data=StandardPagination().paginate_queryset(qs, page, request))`, response `BaseResponse[Page[XxxResponse]]` (no `@paginate`)
   (settings-driven default page size + cap). Don't use bare `PageNumberPagination`.
 - **Filtering**: `FilterSchema` with `Annotated[..., FilterLookup(q="field__icontains")]`.
 - **Rate limit**: use the semantic throttles in `apps.core.throttling`
@@ -55,20 +60,26 @@ Skip `tasks.py` / `external_services.py` if the app needs no background work or 
    `list_select_related`, search/autocomplete, readonly timestamps, masked secrets).
 2. Import the router in `config/urls.py` and register it:
    `api.add_router("/<name>", <name>_router)`.
-3. Generate the migration (loads .env.local or dummy env):
+3. Generate the migration (loads .env.local or dummy env, no Docker needed):
    `make makemigrations-local APP=<name>`
-   (or `SECRET_KEY=dummy DATABASE_URL="postgresql://u:p@localhost:5432/db" uv run python manage.py makemigrations <name>`).
 4. Add shared fixtures to root `conftest.py` only if broadly reused.
 
-## Verify before finishing
+## Done checklist
 
-Run the `check` skill, or at minimum:
+Report every item with one of three states — never tick what you didn't actually run:
+`[x]` verified · `[ ]` not done · `[ ] ⛔ <reason>` couldn't verify (e.g. Docker not running).
 
-```bash
-uv run ruff check . && uv run ruff format --check .
-make type-check
-SECRET_KEY=dummy DATABASE_URL="sqlite://:memory:" uv run pytest -q
-```
+- [ ] `apps.<name>` in `INSTALLED_APPS`; router registered in `config/urls.py`
+- [ ] Migration generated and committed
+- [ ] Every model registered in `admin.py`
+- [ ] Service tests pass (before views were written)
+- [ ] Endpoint tests pass, incl. owner-isolation (404) and auth-required (401)
+- [ ] Unused optional layers (`tasks.py` / `external_services.py`) not created
+- [ ] `check` skill passes (ruff + mypy + `make test-local`)
 
-All three must pass. Integration tests run against in-memory SQLite locally; the real
-DB is Postgres in Docker (`make test`).
+## Common pitfalls
+
+- Forgetting `config/urls.py` — the app imports fine, every endpoint 404s.
+- Router without `auth=BearerAuth()` — endpoints are public by default.
+- Creating `tasks.py` / `external_services.py` "for later" — add them when needed.
+- Bare `uv run pytest` fails on a fresh clone (no `SECRET_KEY`/`DATABASE_URL`) — use `make test-local`.
