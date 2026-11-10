@@ -24,7 +24,7 @@ export default defineConfig({
         // 從 416KB 漲到 553KB —— 但真正的問題不是大小,是「改一行業務程式碼就
         // 讓使用者重新下載整包 vendor」。拆開後 vendor chunk 的 hash 只在依賴
         // 真的變動時才改變,快取命中率高得多。
-        advancedChunks: {
+        codeSplitting: {
           groups: [{ name: "vendor", test: /[\\/]node_modules[\\/]/ }],
         },
       },

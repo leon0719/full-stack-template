@@ -10,6 +10,12 @@ updates:
       python-dependencies:
         patterns:
           - "*"
+    # pyproject's [tool.uv] override-dependencies pins django to 6.1.x (django-celery-beat
+    # cap workaround), so a django>=6.2 bump would leave pyproject and uv.lock disagreeing.
+    # Remove together with that override.
+    ignore:
+      - dependency-name: "django"
+        versions: [">=6.2"]
 
   # 頂層 .github/workflows/*.yml 用到的 Actions
   - package-ecosystem: "github-actions"

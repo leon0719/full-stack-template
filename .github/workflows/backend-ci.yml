@@ -47,18 +47,12 @@ jobs:
       - name: Migrations are up to date
         run: uv run python manage.py makemigrations --check --dry-run
 
+      # prod 環境變數統一放在 backend/.env.ci（與下方 smoke test 共用）。用 shell source
+      # 而非 step env / uv --env-file，是為了讓檔案值蓋過 job-level 的短 SECRET_KEY。
       - name: Deployment checks (check --deploy)
-        env:
-          ENV: prod
-          DJANGO_SETTINGS_MODULE: config.settings.prod
-          SECRET_KEY: "ci-deploy-check-only-not-a-real-secret-key-0123456789ABCDEF"
-          DATABASE_URL: "sqlite://:memory:"
-          ALLOWED_HOSTS: "example.com"
-          CORS_ALLOWED_ORIGINS: "https://app.example.com"
-          CSRF_TRUSTED_ORIGINS: "https://app.example.com"
-          CELERY_BROKER_URL: "redis://ci-broker:6379/0"
-          CACHE_URL: "redis://ci-cache:6379/1"
-        run: uv run python manage.py check --deploy --fail-level WARNING
+        run: |
+          set -a && . ./.env.ci && set +a
+          uv run python manage.py check --deploy --fail-level WARNING
 
       - name: Tests
         run: uv run pytest --cov=apps --cov=config --cov-report=term-missing --cov-fail-under=70
@@ -142,18 +136,8 @@ jobs:
       - name: Smoke test /health/live
         working-directory: .
         run: |
-          docker run -d --name smoke -p 8000:8000 \
-            -e ENV=prod \
-            -e DJANGO_SETTINGS_MODULE=config.settings.prod \
-            -e SECRET_KEY="ci-deploy-check-only-not-a-real-secret-key-0123456789ABCDEF" \
-            -e DATABASE_URL="sqlite://:memory:" \
-            -e ALLOWED_HOSTS="localhost,127.0.0.1" \
-            -e CORS_ALLOWED_ORIGINS="https://smoke.example.com" \
-            -e CELERY_BROKER_URL="redis://smoke-broker:6379/0" \
-            -e CACHE_URL="redis://smoke-cache:6379/1" \
-            -e UVICORN_HOST=0.0.0.0 \
-            -e WEB_CONCURRENCY=1 \
-            app:ci
+          # 環境變數與 check --deploy 共用 backend/.env.ci；prod 新增必填變數時只改那份檔。
+          docker run -d --name smoke -p 8000:8000 --env-file backend/.env.ci app:ci
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:8000/health/live; then
               echo "smoke test passed"

@@ -31,7 +31,13 @@ describe("initErrorTracking", () => {
     expect(Sentry.init).toHaveBeenCalledOnce();
     expect(vi.mocked(Sentry.init).mock.calls[0][0]).toMatchObject({
       dsn: "https://public@o0.ingest.sentry.io/1",
-      sendDefaultPii: false,
+      dataCollection: {
+        userInfo: false,
+        cookies: false,
+        httpHeaders: { request: { allow: ["user-agent"] }, response: false },
+        httpBodies: [],
+        urlQueryParams: { deny: ["code", "state"] },
+      },
     });
   });
 

@@ -1,1 +1,1 @@
-export { App } from "./providers";
+export { App } from "./entrypoint";

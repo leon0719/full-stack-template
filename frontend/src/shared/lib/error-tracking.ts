@@ -20,8 +20,18 @@ export function initErrorTracking(): void {
     environment: env.mode,
     // 只在 prod build 開啟效能追蹤,dev 不需要而且會吵。
     tracesSampleRate: env.isProd ? 0.1 : 0,
-    // 預設會把使用者 IP 等 PII 一起送出;明確關掉,需要時再依隱私政策開啟。
-    sendDefaultPii: false,
+    // SDK v11 起預設會收集使用者資訊(含 IP 推斷)、cookie、HTTP header/body 等 PII;
+    // 明確關掉,需要時再依隱私政策逐項開啟。
+    dataCollection: {
+      userInfo: false,
+      cookies: false,
+      // 只留 User-Agent:Sentry 靠它判斷瀏覽器/OS,legacy browser / crawler 的 inbound filter
+      // 也靠它。整個關掉(false)會讓這些全部失效。
+      httpHeaders: { request: { allow: ["user-agent"] }, response: false },
+      httpBodies: [],
+      // OAuth callback 的 ?code= / ?state= 不在 SDK 預設的敏感字清單裡,手動遮掉。
+      urlQueryParams: { deny: ["code", "state"] },
+    },
   });
 
   setErrorReporter((error, context) => {

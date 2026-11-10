@@ -25,6 +25,7 @@ ENV
 .coverage
 htmlcov
 **/tests.py
+**/test_*.py
 **/tests/
 conftest.py
 

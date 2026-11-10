@@ -13,6 +13,8 @@ venv/
 .env
 .env.*
 !.env.*.example
+# CI 用的 prod 假值（見 .env.ci 檔頭），刻意進版控。
+!.env.ci
 
 # Django
 django.mo

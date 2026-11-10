@@ -6,7 +6,9 @@ import tomllib
 from pathlib import Path
 
 _RE_NORMALIZE = re.compile(r"[-_.]+")
-_RE_DEP_LINE = re.compile(r'^(\s*")([\w\-\[\]]+)(>=[\d.]+)(.*",?)$')
+# The bound must cover full PEP 440 versions (e.g. 1.4.1.post1, 2.0.0rc1); matching only
+# [\d.]+ stops at "1.4.1." and a re-run then duplicates the suffix ("...post1post1").
+_RE_DEP_LINE = re.compile(r'^(\s*")([\w\-\[\]]+)(>=[\w.!+]+)(.*",?)$')
 _RE_BASE_NAME = re.compile(r"[\w\-]+")
 
 

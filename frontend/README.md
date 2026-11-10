@@ -32,7 +32,7 @@ bun run dev
 
 ```
 src/
-  app/      進入點、providers、router
+  app/      進入點（entrypoint：providers 組裝）、router
   pages/    頁面 slice（ui / api / model）
   shared/   共用底層
     auth/   權限：store、adapter、hooks、guards

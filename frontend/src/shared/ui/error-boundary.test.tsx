@@ -8,6 +8,14 @@ function Boom(): never {
   throw new Error("boom");
 }
 
+// 元件要定義在模組層(Biome noComponentHookFactories);是否丟錯由測試切換這個旗標控制。
+let flakyShouldThrow = true;
+
+function Flaky() {
+  if (flakyShouldThrow) throw new Error("boom");
+  return <p>recovered</p>;
+}
+
 describe("ErrorBoundary", () => {
   it("renders children when there is no error", () => {
     render(
@@ -44,18 +52,14 @@ describe("ErrorBoundary", () => {
 
   it("recovers when the retry button is pressed", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    let shouldThrow = true;
-    function Flaky() {
-      if (shouldThrow) throw new Error("boom");
-      return <p>recovered</p>;
-    }
+    flakyShouldThrow = true;
     render(
       <ErrorBoundary>
         <Flaky />
       </ErrorBoundary>,
     );
     expect(screen.getByText("發生錯誤")).toBeInTheDocument();
-    shouldThrow = false;
+    flakyShouldThrow = false;
     await userEvent.click(screen.getByRole("button", { name: "重試" }));
     expect(screen.getByText("recovered")).toBeInTheDocument();
   });

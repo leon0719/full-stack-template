@@ -3,44 +3,54 @@ name = "django-ninja-project-tree"
 version = "0.1.0"
 description = "General Django Ninja project architecture"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 dependencies = [
-    "argon2-cffi>=23.1.0",
+    "argon2-cffi>=25.1.0",
     "dj-database-url>=3.1.2",
-    "django>=6.0.6",
+    "django>=6.1.3",
     "django-cors-headers>=4.9.0",
-    "django-ninja>=1.6.2",
+    "django-ninja>=1.8.0",
     "loguru>=0.7.3",
     "psycopg[binary,pool]>=3.3.4",
-    "pydantic-settings>=2.14.2",
+    "pydantic-settings>=2.16.2",
     "redis>=6.4.0,<7",
-    "tenacity>=9.1.4",
-    "uvicorn[standard]>=0.49.0",
-    "celery[redis]>=5.6.3",
+    "tenacity>=9.2.1",
+    "uvicorn[standard]>=0.54.0",
+    "celery[redis]>=5.7.0",
     "django-celery-beat>=2.9.0",
-    "orjson>=3.11.9",
+    "orjson>=3.13.0",
     "httpx>=0.28.1",
-    "sentry-sdk[django]>=2.52.0",
-    "email-validator>=2.2.0",
+    "sentry-sdk[django]>=2.74.0",
+    "email-validator>=2.3.0",
     "whitenoise>=6.12.0",
-    "django-allauth[socialaccount]>=65.18.0",
+    "django-allauth[socialaccount]>=65.21.1",
 ]
 
 [dependency-groups]
 dev = [
-    "django-stubs>=6.0.6",
-    "mypy>=2.1.0",
-    "pre-commit>=4.6.0",
-    "pytest>=9.1.1",
-    "pytest-asyncio>=1.4.0",
+    "django-stubs>=6.1.2",
+    "mypy>=2.4.1",
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
     "pytest-cov>=7.1.0",
-    "pytest-django>=4.12.0",
-    "ruff>=0.15.19",
-    "vulture>=2.14",
+    "pytest-django>=4.14.0",
+    "ruff>=0.17.4",
+    "vulture>=2.16",
 ]
 
+[tool.uv]
+# django-celery-beat 2.9.0 (latest on PyPI) still pins `django<6.1`, although its main
+# branch already declares and CI-tests Django 6.1 + Python 3.15 — the release is just
+# stalled (celery/django-celery-beat#1079). Lift that cap here; remove this override
+# once django-celery-beat >= 2.10 is on PyPI.
+# NOTE: an override replaces *every* django requirement, including this project's own
+# `dependencies` entry — this line is the effective Django range. Bumping Django means
+# editing both places (dependabot.yml ignores django>=6.2 until then).
+override-dependencies = ["django>=6.1.3,<6.2"]
+
 [tool.ruff]
-target-version = "py314"
+target-version = "py315"
 line-length = 120
 # Django auto-generates migrations; don't lint generated code.
 extend-exclude = ["**/migrations/*.py"]
@@ -79,7 +89,7 @@ select = [
 "scripts/*" = ["T20"]
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.15"
 plugins = ["mypy_django_plugin.main"]
 ignore_missing_imports = true
 check_untyped_defs = true
@@ -97,6 +107,7 @@ python_files = ["tests.py", "test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 addopts = "--strict-markers"
 markers = [
     "unit: Unit tests (no external services required)",

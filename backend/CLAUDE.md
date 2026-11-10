@@ -18,14 +18,17 @@ Never run these yourself — stop and hand the exact command to the user:
 
 ## Project Overview
 
-Django Ninja REST API template with Celery task queue, PostgreSQL, Redis, and Docker-based development. Uses `uv` as the package manager, Python 3.14+.
+Django Ninja REST API template with Celery task queue, PostgreSQL, Redis, and Docker-based development. Uses `uv` as the package manager, Python 3.15+.
 
 ### Version trade-offs
-- **Django 6.0** — current default. Not an LTS: community support runs until ~2027-04.
-  If you prefer a set-and-forget baseline, consider pinning to **5.2 LTS** (supported
-  until ~2028-04) instead.
-- **Celery 5.6** — Python 3.14 support is *initial* at this release; watch for rough
-  edges and re-check compatibility when upgrading either Celery or Python.
+- **Django 6.1** — current default. Not an LTS; for a set-and-forget baseline, pin to
+  **5.2 LTS** (supported until ~2028-04) instead.
+- **django-celery-beat cap overridden** — django-celery-beat 2.9.0 (latest on PyPI) pins
+  `django<6.1`, though its main branch already supports and CI-tests Django 6.1 + Python 3.15.
+  `[tool.uv] override-dependencies` in `pyproject.toml` lifts the cap; delete it once
+  django-celery-beat >= 2.10 ships (celery/django-celery-beat#1079).
+- **Python 3.15** — Django 6.1 supports it officially; Celery 5.7 only declares up to 3.14
+  (test suite passes on 3.15). Re-check when upgrading Celery or Python.
 
 ## Commands
 
@@ -152,7 +155,10 @@ args and keep them idempotent (broker uses `acks_late`). Celery Beat uses `Datab
   `CSRF_TRUSTED_ORIGINS` in `.env.prod`.
 
 ### CI
-- `.github/workflows/ci.yml` — ruff format check, lint, mypy, pytest (SQLite), prod Docker build
+- `.github/workflows/backend-ci.yml` (repo root) — ruff format check, lint, mypy, pytest (SQLite), prod Docker build
+- Prod env for CI (`check --deploy` + docker smoke test) lives only in `backend/.env.ci` (fake values,
+  committed). Adding a required prod setting → add a fake value there and document it in `.env.prod.example`;
+  `config/test_ci_env.py` fails `make test-local` until both are done.
 
 ## Code Style
 - Line length: 120

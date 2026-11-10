@@ -4,7 +4,7 @@
 # Base images pinned by digest for reproducible, tamper-evident builds. The tag
 # is kept for readability; the digest is authoritative. Dependabot (docker
 # ecosystem) bumps both together.
-FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1 AS builder
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin uv so builds are reproducible (bump deliberately, not on every build).
-COPY --from=ghcr.io/astral-sh/uv:0.9@sha256:538e0b39736e7feae937a65983e49d2ab75e1559d35041f9878b7b7e51de91e4 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /usr/local/bin/uv
 
 # Install only third-party deps (not the project itself) for better layer caching.
 # The cache mount persists downloaded wheels across builds (BuildKit host cache),
@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Runtime — slim image with only runtime libs + the prebuilt venv. No uv,
 # no compilers → smaller image and smaller attack surface.
 # ---------------------------------------------------------------------------
-FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1 AS runtime
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS runtime
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \

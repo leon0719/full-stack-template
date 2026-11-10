@@ -2,7 +2,7 @@
 
 A production-ready Django Ninja REST API template with a Celery task queue, PostgreSQL,
 Redis, and Docker-based development. Uses [`uv`](https://github.com/astral-sh/uv) as the
-package manager and targets Python 3.14+.
+package manager and targets Python 3.15+.
 
 ## Stack
 
