@@ -2,7 +2,9 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(bun run lint*)",
+      "Bash(bun run lint)",
+      "Bash(bun run lint:ci)",
+      "Bash(bun run lint:fsd)",
       "Bash(bun run format)",
       "Bash(bun run type-check)",
       "Bash(bun run test)",

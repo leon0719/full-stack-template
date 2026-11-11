@@ -6,20 +6,24 @@
       "Bash(make format)",
       "Bash(make lint)",
       "Bash(make type-check)",
-      "Bash(make test*)",
-      "Bash(uv run pytest*)",
-      "Bash(uv run ruff*)",
-      "Bash(uv run mypy*)",
+      "Bash(make test)",
+      "Bash(make test-local)",
+      "Bash(uv run pytest)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv run mypy *)",
       "Bash(make unused)",
       "Bash(make openapi)"
     ],
     "deny": [
       "Bash(make prod-*)",
+      "Bash(make *prod-*)",
       "Bash(*docker-compose.prod.yml*)",
       "Bash(git push*)",
       "Read(./.env.prod)",
       "Bash(*.env.prod*)",
-      "Bash(make docker-clean*)"
+      "Bash(make docker-clean*)",
+      "Bash(make *docker-clean*)"
     ]
   },
   "hooks": {
