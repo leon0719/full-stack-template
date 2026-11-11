@@ -1,140 +1,87 @@
 # CLAUDE.md
 
-full-stack monorepo 的前端：Vite + React 19 + TS，FSD v2.1 pages-first，Biome 單一工具鏈。
-後端在 `../backend`（Django Ninja）；LINE 登入串接、dev 跨源設定等整合層見 [../CLAUDE.md](../CLAUDE.md)。
-
-## 回應語言
-
-**一律使用繁體中文，採台灣本地化用語**——用 程式碼／資料／函式／物件／介面／型別／快取／預設／效能，
-不用 代碼／數據／函數／對象／接口／類型／緩存／默認／性能。即使以英文提問，回應仍用繁體中文。
-程式碼識別字、檔名、目錄名、套件名保持英文不翻譯。
-
-## ⛔ 只能由人執行
-
-不要自己執行——停下來，把完整指令交給使用者：
-- 部署：`make deploy-frontend`／`scripts/deploy-frontend.sh`（S3 + CloudFront）、讀寫 prod 的 `.env`
-- `git push`（任何分支）、force-push、改寫已推送的歷史
-- 呼叫真實的第三方 API／webhook（含 Sentry 以外的上報端點）
+Frontend half of the full-stack monorepo: Vite + React 19 + TS, FSD v2.1 pages-first, Biome as the single toolchain.
+The backend is `../backend` (Django Ninja). Response language, human-only operations, Git rules, the
+frontend–backend contract, and the integration layer (LINE login, dev cross-origin setup) are in
+[../CLAUDE.md](../CLAUDE.md) and apply here.
 
 ## Commands
-- `bun run dev` — 開發伺服器
-- `bun run build` — 打包（route-level code splitting、hidden sourcemap、React Compiler）;型別檢查由 `type-check` 獨立負責（CI 與 pre-commit 都會跑）
-- `bun run format` — Biome 格式化 + 修正 + 整理 import
-- `bun run lint` — Biome 靜態檢查（`lint:ci` 為 CI 用的 lint+format 全檢）
-- `bun run lint:fsd` — steiger 檢查 FSD 邊界（例外規則見 `steiger.config.ts`）
-- `bun run type-check` — `tsc -b`（涵蓋 app + node 兩個 project）
+
+- `bun run dev` — dev server
+- `bun run build` — bundle only; type-checking is `type-check`'s job
+- `bun run format` — Biome format + fix + organize imports
+- `bun run lint` — Biome lint (`lint:ci` = lint + format check, no writes)
+- `bun run lint:fsd` — steiger FSD boundary check (exceptions in `steiger.config.ts`)
+- `bun run type-check` — `tsc -b`
 - `bun run test` / `bun run test:watch` — Vitest
-- `make gen-api`（repo 根目錄）— 從 `../backend` 匯出 OpenAPI 並產生 `src/shared/api/schema.d.ts`，不需要啟動後端。
-  **後端 schema／endpoint 一改就跑**，產物要 commit；Biome 不檢查它
+- `make gen-api` (repo root) — export OpenAPI from `../backend` and generate `src/shared/api/schema.d.ts`;
+  the backend need not be running. Run it whenever a backend schema/endpoint changes and commit the
+  output; Biome skips it.
 
-CI（repo 根目錄 `.github/workflows/frontend-ci.yml`）跑 lint:ci + lint:fsd + type-check + test + build;
-pre-commit hook 由 repo 根目錄的 `.pre-commit-config.yaml` 統一管理（前端改動時跑 lint + type-check）。
+CI (repo root `.github/workflows/frontend-ci.yml`) runs lint:ci + lint:fsd + type-check + test + build;
+pre-commit is managed by the repo root `.pre-commit-config.yaml` (lint + type-check on frontend changes).
 
-## Architecture：FSD v2.1（pages-first）
-分層（由上而下）：`app → pages → widgets → features → entities → shared`。
-本模板只預鋪 `app / pages / shared` 三層；複雜度上升時才往下抽 `features / entities / widgets`。
+## Architecture: FSD v2.1 (pages-first)
 
-### Import 規則（鐵律）
-- 只能由上層 import 下層，**不可反向**。
-- 同層 slice **不可**互相 import。
-- 跨 slice 一律經由該 slice 的 `index.ts`（public API），**不可**深層 import 內部 segment。
-- 一律用 `@/` 別名，不用相對路徑跳層。
-- segment 分類：`ui`（元件）/ `model`（狀態邏輯，Zustand）/ `api`（Query hooks + 呼叫）/ `lib`（純函式）/ `config`。
+Layers, top to bottom: `app → pages → widgets → features → entities → shared`.
+The template ships only `app / pages / shared`; extract `features / entities / widgets` when complexity demands it.
 
-> 工具強制：steiger（`bun run lint:fsd`,本機與 CI 皆跑）強制 public API 與分層規則;
-> Biome `noRestrictedImports` 另擋 `@/app`。測試檔可深層 import(見 `steiger.config.ts`)。
+### Import rules (hard rules, enforced by steiger + Biome `noRestrictedImports`)
+- Upper layers import lower layers, never the reverse.
+- Slices on the same layer never import each other.
+- Cross-slice imports go through the slice's `index.ts` (public API), never deep into a segment.
+  Test files may deep-import (see `steiger.config.ts`).
+- Always use the `@/` alias, never relative paths that climb layers.
+- Segments: `ui` (components) / `model` (state, Zustand) / `api` (Query hooks + calls) / `lib` (pure functions) / `config`.
 
-## 何時下沉到 features / entities
-- 同一段 UI/邏輯被 **2 個以上 page** 重複使用 → 抽到 `features` 或 `widgets`。
-- 出現跨頁共享的「業務實體」型別與其 API（如 user、product）→ 抽到 `entities/<name>`。
-- 在那之前，邏輯就留在 page slice 內，不要預先過度切分。
+### When to extract to features / entities
+- The same UI/logic is used by **two or more pages** → `features` or `widgets`.
+- A business entity's types and API are shared across pages (user, product) → `entities/<name>`.
+- Until then, keep the logic inside the page slice; do not split in advance.
 
-## 新增一個 page
-1. `src/pages/<name>/ui/<name>-page.tsx` 放元件。
-2. 資料抓取放 `src/pages/<name>/api/`（TanStack Query hook）。
-3. `src/pages/<name>/index.ts` 只 re-export 對外要用的東西。
-4. 在 `src/app/router.tsx` 用 `createRoute` 註冊路由,`component` 用
-   `lazyRouteComponent(() => import("@/pages/<name>"), "<Name>Page")` 維持 code splitting。
-5. 加測試 `src/pages/<name>/<name>-page.test.tsx`。
-（可直接用 `scaffold-page` skill 產生骨架。）
+New page → use the **scaffold-page** skill.
+
+## Platform primitives (`src/shared`) — use these, don't reinvent
+
+Before changing anything inside `shared/auth`, `shared/api`, `shared/i18n`, or the error-handling
+primitives, read `docs/platform.md`.
+
+- **Auth**: `useAuth()`, `usePermission()`, `<RequireAuth>`, `<RequireRole role>`. Frontend guards are UX
+  only; the backend authorizes.
+- **API**: `apiGet/apiPost/apiPut/apiPatch/apiDelete<T>` from `@/shared/api`. The client unwraps the
+  `BaseResponse` envelope, so `T` is the inner type (`apiGet<Article>`, not `apiGet<BaseResponse<Article>>`).
+  Branch on `ApiError.reason` (a stable code such as `"username_taken"`, usable as the i18n key
+  `errors.<reason>`), never on `message`.
+- **Types**: `import type { components } from "@/shared/api"` → `components["schemas"]["XxxResponse"]`;
+  never hand-write backend types (example: `MeResponse` in `django-adapter.ts`).
+- **i18n**: `const { t } = useTranslation()`; add keys to `locales/zh-TW.json` first (it is the type source).
+  zod schema messages are i18n keys.
+- **Errors**: `reportError(error, context?)`; `<ErrorBoundary>` already wraps the router.
+- **Forms**: `useZodForm(schema)`.
+
+## Frontend–backend conventions
+
+- **Fixed-shape API types**: response / POST / PATCH types list every field; nullable is `| null`, never `?`
+  (`?` is for query params only). Check with `=== null`. Hand-written contract interfaces get JSDoc on
+  each field, matching the backend's field description.
+- **Backend string enums are literal unions**: `type Status = "draft" | "published"`, values copied from
+  the backend; no TS `enum`.
+- **Time is a UTC contract**: always send an offset (`toISOString()` or `+08:00`); to display, `new Date(v)`
+  then format — never `slice(0, 10)`. Date-only fields: start gets `00:00:00+08:00`, end gets
+  `23:59:59.999999+08:00`.
+- **Navigate with links**: plain navigation is `<Link>`, not `onClick` + `navigate`; use `navigate` only
+  after validation, confirmation, or a successful API call.
+- **Routes**: kebab-case plural nouns; IDs are route params (`/users/$userId`), not query strings.
+- **Functions**: top-level functions use `function`; arrow functions only as arguments or object property values.
 
 ## Code Style
-- Biome：indentWidth 2、lineWidth 100、double quotes、organizeImports。
-- `noExplicitAny: warn` — 避免 `any`。
-- 提交前跑 `check` skill 或 `bun run lint && bun run type-check && bun run test`。
 
-## 平台底層（共用原件）
+- Biome: indentWidth 2, lineWidth 100, double quotes, organizeImports.
+- `noExplicitAny: warn` — avoid `any`.
 
-### Auth / 權限（`shared/auth`）
-- `useAuth()` → `{ user, status, isAuthenticated, login, logout }`
-- `usePermission()` → `{ hasRole(role), hasAnyRole(roles) }`（RBAC，角色為主）
-- 守衛：`<RequireAuth>`（未登入導 `/login`）、`<RequireRole role>`（無角色顯示 403）
-- 路由硬守衛：在 `createRoute` 的 `beforeLoad` 先 `await initAuth()`（session-ready promise,
-  冷載入/深連結會等 session 恢復完才判斷）,再檢查 `useAuthStore.getState().status` 並 `throw redirect(...)`
-- 本專案的 adapter 是 `djangoAuthAdapter`（`shared/auth/adapter/django-adapter.ts`，LINE 登入 → exchange code → token），
-  `main.tsx` 啟動時 `setAuthAdapter`；它自己解 `BaseResponse` envelope（不能用 `shared/api` client，會循環依賴）
-- Prod fail-fast：`import.meta.env.PROD` 下若 adapter 仍是 fakeAuthAdapter,`login/init` 直接 throw
-- Token 持久化由 AuthAdapter 負責（login 時 persist、logout 時 clear、me 從持久化 token 還原 session）；store 僅在記憶體保存 `state.token`。`tokenStorage` 是 auth 內部實作,不在 public API
-- 安全注意:token 存 localStorage,任何 XSS 都可竊取;正式環境建議改由後端下發 httpOnly cookie,並自備 CSP / security headers（模板未內建）
-- 前端守衛（beforeLoad / RequireRole）只是 UX,不是授權邊界;後端必須獨立驗權
+## How to work
 
-> FSD 偏離說明：權限置於 `shared/auth` 而非 `entities/`，因為它同時被 `app`（router guard）與
-> `shared/api`（攔截器）消費；放最底層才能讓「只能上層 import 下層」的鐵律成立。
-
-### API client（`shared/api`）
-- `apiGet/apiPost/apiPut/apiPatch/apiDelete<T>(path, body?, init?)`；部分更新用 `apiPatch`（後端更新端點是 PATCH）
-- **後端契約 `BaseResponse`**（Django Ninja / FastAPI / .NET 模板相同）：成功 `{ data, error: null }`，
-  失敗 `{ data: null, error: { code: <HTTP 狀態碼>, message, reason } }`。client 對自家 API 的回應**自動解包**
-  `data`，所以 `T` 寫內層型別（`apiGet<Article>`，不是 `apiGet<BaseResponse<Article>>`）
-- 錯誤分支用 `ApiError.reason`（穩定字串碼，如 `"username_taken"`，也可當 i18n key，如 `errors.<reason>`），
-  **不要比對 `message`**——那是給開發者看的英文，文案會變
-- 型別：`import type { components } from "@/shared/api"` → `components["schemas"]["XxxResponse"]`，**不要手寫後端型別**
-  （範例：`django-adapter.ts` 的 `MeResponse`）
-- **只對 API origin**（`VITE_API_BASE_URL`,未設定時為頁面同源）夾帶 `Authorization: Bearer <token>`;
-  絕對 URL 指向其他 host 時不附 token（防憑證外洩）
-- 非 2xx 丟出 `ApiError`（`status` + `reason` + `message` + `payload`）；同源 401 會自動清除 session
-
-### 錯誤處理（`shared/lib` + `shared/ui`）
-- `reportError(error, context?)` / `setErrorReporter(fn)`:可插拔錯誤上報。接 Sentry 等服務時
-  在啟動處呼叫一次 `setErrorReporter`;`main.tsx` 已掛 window `error` / `unhandledrejection`
-- `<ErrorBoundary>`（`shared/ui`）：包在 RouterProvider 外層接住 render 錯誤,含重試按鈕,
-  捕捉到的錯誤走 `reportError`
-- build 產 `hidden` sourcemap（`dist/assets/*.map`,不對瀏覽器曝光,供錯誤追蹤服務上傳）
-
-### 其他原件
-- `<AppLayout>`（`shared/ui`）：header（登入者 + 登出）+ `<Outlet />`
-- `useZodForm(schema, options?)`（`shared/lib`）：RHF + zod 薄封裝
-- 404:`createRouter` 的 `defaultNotFoundComponent`;測試建 router 用 `createAppRouter({ history })`
-
-### i18n（`shared/i18n`）
-- 用法：`const { t } = useTranslation();` → `t("auth.login.title")`；切換語言用 `<LanguageSwitcher />` 或 `i18n.changeLanguage(code)`。
-- 語言：`zh-TW`（預設 + fallback）、`en`；偵測 localStorage(`app.lang`) → navigator。
-- 加語言：在 `SUPPORTED_LANGUAGES` 增一項，並新增 `locales/<code>.json`，於 `config.ts` 的 `resources` 註冊。
-- 加 key：在 `locales/zh-TW.json` 新增（zh-TW 為型別來源，key 會自動有型別），再補其他語言。
-- 型別安全：`i18next.d.ts` 以 zh-TW 詞庫宣告合併 `CustomTypeOptions`，未知 key 會編譯報錯。
-- zod 訊息：schema 的 message 放 i18n key（如 `"auth.login.usernameRequired"`），畫面以 `t(errors.x.message)` 渲染。
-- ErrorBoundary 特例：它位於 `I18nextProvider` 之外，故用全域 `i18n.t(...)` 而非 `useTranslation` hook。
-
-## 前後端串接慣例
-
-- **API 型別固定欄位**：Response / POST / PATCH 型別一律固定欄位，可空用 `| null`，**不用 `?`**；`?` 只用於查詢參數。
-  可空判斷用 `=== null`。手寫的契約 interface 欄位加 JSDoc（對齊後端欄位說明）。
-- **後端字串列舉用字面值聯集**：`type Status = "draft" | "published"`，值照抄後端，不用 TS `enum`。
-- **時間一律 UTC 契約**：送出必帶時區位移（`toISOString()` 或 `+08:00`）；顯示前 `new Date(v)` 再格式化，
-  **禁止** `slice(0, 10)` 截字串；只選日期的欄位，起始補 `00:00:00+08:00`、截止補 `23:59:59.999999+08:00`。
-- **導頁用連結**：單純換頁用 `<Link>`，不用 `onClick` + `navigate`；需先驗證/確認/送 API 成功後才導頁才用 `navigate`。
-- **路由命名**：path 用 kebab-case 複數名詞，ID 用路由參數（`/users/$userId`）而非 query string。
-- **函式宣告**：頂層函式用 `function`；箭頭函式只用於參數或物件屬性值。
-
-## 開發方式
-- **TDD**：每個原件先寫失敗測試（RED）→ 最小實作（GREEN）→ 重構（REFACTOR）。
-- 新增 page 用 `scaffold-page` skill；變更後跑 `check` skill（Biome + tsc + Vitest）。
-- 提交前確認 `bun run lint && bun run type-check && bun run test` 全綠。
-- 設計與計畫文件置於 `docs/superpowers/`（已於 .gitignore 排除，屬本機輔助）。
-
-## Git
-
-- Commit 格式 `<type>: <中文說明>`，type 只有 `feat`／`fix`／`docs`／`style`／`refactor`／`test`／`chore`。
-  **說明用中文**、**不使用 scope**（不寫 `feat(auth):`）。
-- 破壞性變更（呼叫端不改程式就會壞）在 type 後加 `!`：`feat!: 移除 apiPut`。
-- 分支 `<類型>/<描述>`，類型只有 `feat`／`fix`／`refactor`／`docs`／`chore`；不直接 commit 到 `main`。
+- **TDD**: failing test first (RED) → minimal implementation (GREEN) → refactor.
+- Before you finish, run the **check** skill (Biome + steiger + tsc + Vitest). Report unverified items as
+  unverified — never tick something you didn't run.
+- Design and plan documents go in `docs/superpowers/` (gitignored, local only).

@@ -5,17 +5,18 @@ description: Run the full local quality gate for this template — Biome check, 
 
 # Quality gate
 
-與 CI（repo 根目錄 `.github/workflows/frontend-ci.yml`）同一組檢查，依序執行，回報精簡 pass/fail。
-遇到第一個硬失敗就停下並貼出輸出。
+The same checks CI runs (repo root `.github/workflows/frontend-ci.yml`). Run them in order and report a concise pass/fail.
+Stop at the first hard failure and paste its output.
 
 ```bash
-bun run lint:ci       # Biome lint + format 全檢（不改檔）
-bun run lint:fsd      # steiger:FSD 分層與 public API
-bun run type-check    # tsc -b（app + node 兩個 project）
+bun run lint:ci       # Biome lint + format check (no writes)
+bun run lint:fsd      # steiger: FSD layering and public API
+bun run type-check    # tsc -b (app + node projects)
 bun run test          # Vitest run
 ```
 
-`lint:ci` 若只有格式/import 排序問題，先跑 `bun run format` 自動修正再重跑。
+If `lint:ci` fails only on formatting / import order, run `bun run format` to auto-fix, then re-run.
 
 ## Report format
-彙整成：`biome: OK · fsd: OK · type-check: OK · test: N passed`。任何失敗則貼出相關行並提出修正。
+Summarize as: `biome: OK · fsd: OK · type-check: OK · test: N passed`. For any failure, paste the
+relevant lines and propose a fix. A step that was not run is reported as not run, never `OK`.

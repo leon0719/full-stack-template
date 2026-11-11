@@ -174,3 +174,14 @@ the checklist for adding a new app.
 - **Blind `except Exception`** is allowed only in boundary layers (`views.py`, `tasks.py`)
   and must log + convert to a proper HTTP error.
 - **Test markers**: `unit`, `integration`, `slow` (strict markers enforced).
+
+## Version trade-offs
+
+- **Django 6.1** — current default, not an LTS. For a set-and-forget baseline, pin to **5.2 LTS**
+  (supported until ~2028-04) instead.
+- **django-celery-beat cap overridden** — django-celery-beat 2.9.0 (latest on PyPI) pins `django<6.1`,
+  though its main branch already supports and CI-tests Django 6.1 + Python 3.15.
+  `[tool.uv] override-dependencies` in `pyproject.toml` lifts the cap; delete it once
+  django-celery-beat >= 2.10 ships (celery/django-celery-beat#1079).
+- **Python 3.15** — Django 6.1 supports it officially; Celery 5.7 only declares up to 3.14
+  (test suite passes on 3.15). Re-check when upgrading Celery or Python.

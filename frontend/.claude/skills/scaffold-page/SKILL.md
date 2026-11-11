@@ -5,9 +5,9 @@ description: Scaffold a new FSD page slice (pages/<name>) with ui + api segments
 
 # Scaffold a page slice
 
-依 FSD pages-first 慣例新增一個 page。向使用者確認 `<name>`（kebab-case）後：
+Add a page following the FSD pages-first convention. Confirm `<name>` (kebab-case) with the user, then:
 
-1. 建 `src/pages/<name>/ui/<name>-page.tsx`：
+1. Create `src/pages/<name>/ui/<name>-page.tsx`:
 
 ```tsx
 export function <Pascal>Page() {
@@ -19,16 +19,17 @@ export function <Pascal>Page() {
 }
 ```
 
-2. 若需資料抓取，建 `src/pages/<name>/api/use-<name>.ts`（TanStack Query hook，
-   透過 `@/shared/api` 的 `apiGet` 呼叫）。
+2. If it fetches data, create `src/pages/<name>/api/use-<name>.ts` (a TanStack Query hook calling
+   `apiGet` from `@/shared/api`).
 
-3. 建 `src/pages/<name>/index.ts`：
+3. Create `src/pages/<name>/index.ts`, re-exporting only what outsiders need:
 
 ```ts
 export { <Pascal>Page } from "./ui/<name>-page";
 ```
 
-4. 在 `src/app/router.tsx` 註冊（用 `lazyRouteComponent` 維持 code splitting，**不要**靜態 import page）：
+4. Register it in `src/app/router.tsx` (use `lazyRouteComponent` to keep code splitting; **never**
+   import the page statically):
 
 ```tsx
 const <camel>Route = createRoute({
@@ -36,11 +37,11 @@ const <camel>Route = createRoute({
   path: "/<name>",
   component: lazyRouteComponent(() => import("@/pages/<name>"), "<Pascal>Page"),
 });
-// 並把 <camel>Route 加進 rootRoute.addChildren([...])
+// and add <camel>Route to rootRoute.addChildren([...])
 ```
 
-5. 建測試 `src/pages/<name>/<name>-page.test.tsx`，至少驗證標題 render。
+5. Add the test `src/pages/<name>/<name>-page.test.tsx`; at minimum assert the heading renders.
 
-## 鐵律
-- import 只能往下層；跨 slice 走 `index.ts`；一律用 `@/` 別名。
-- 完成後跑 `check` skill 驗收。
+## Hard rules
+- Imports go to lower layers only; cross-slice goes through `index.ts`; always use the `@/` alias.
+- Finish by running the `check` skill.

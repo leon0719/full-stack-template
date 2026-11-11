@@ -1,73 +1,78 @@
 # CLAUDE.md
 
-Monorepo 全端模板：`backend/`（Django Ninja + Celery，uv + Docker）＋
-`frontend/`（Vite + React 19 + FSD，bun + Biome）。
+Full-stack monorepo template: `backend/` (Django Ninja + Celery, uv + Docker) and
+`frontend/` (Vite + React 19 + FSD, bun + Biome).
 
-## 回應語言
+This file holds the rules shared by both halves. When working inside a subdirectory, its own
+CLAUDE.md adds the stack-specific rules:
 
-**一律使用繁體中文，採台灣本地化用語**——用 程式碼／資料／函式／物件／介面／型別／快取／預設／效能，
-不用 代碼／數據／函數／對象／接口／類型／緩存／默認／性能。即使以英文提問，回應仍用繁體中文。
-程式碼識別字、檔名、目錄名、套件名保持英文不翻譯。
+- Backend (layering, settings, tests, Docker) → [backend/CLAUDE.md](backend/CLAUDE.md)
+- Frontend (FSD import rules, TDD, platform primitives) → [frontend/CLAUDE.md](frontend/CLAUDE.md)
 
-## ⛔ 只能由人執行
+## Response language
 
-不要自己執行——停下來，把完整指令交給使用者（`.claude/settings.json` 也會擋）：
-- `make deploy-frontend`／`scripts/deploy-frontend.sh`、任何 `aws` 指令
-- 任何碰 prod 的操作：`backend/docker/docker-compose.prod.yml`、`.env.prod`、連線到 prod DB／Redis
-- `git push`（任何分支）、force-push、改寫已推送的歷史
-- 呼叫真實的第三方 API（含真實 LINE Login）、寄出真實 email
+Always reply in Traditional Chinese (繁體中文) with Taiwan-localized wording, even when asked in English —
+use 程式碼／資料／函式／物件／介面／型別／快取／預設／效能, never 代碼／數據／函數／對象／接口／類型／緩存／默認／性能.
+Code identifiers, file names, directory names, and package names stay in English.
 
-**進到子目錄工作時，以該子目錄的 CLAUDE.md 為準**：
+## Human-only operations ⛔
 
-- 後端慣例（分層、settings、測試、Docker）→ [backend/CLAUDE.md](backend/CLAUDE.md)
-- 前端慣例（FSD import 鐵律、TDD、平台原件）→ [frontend/CLAUDE.md](frontend/CLAUDE.md)
+Never run these yourself — stop and hand the exact command to the user
+(`.claude/settings.json` and `.claude/hooks/block-human-only.sh` also block them):
+- `make deploy-frontend` / `scripts/deploy-frontend.sh`, any `aws` command
+- Anything touching prod: `make prod-*`, `backend/docker/docker-compose.prod.yml`, `.env.prod`,
+  connecting to a prod DB/Redis
+- `git push` (any branch), force-push, rewriting published history
+- `make docker-clean` (wipes the local DB volume)
+- Deleting or rewriting migrations that may already be applied anywhere
+- Calling real third-party APIs (incl. real LINE Login), sending real email
 
-## 頂層指令
+## Top-level commands
 
-- `make up` / `make down` / `make logs` / `make migrate` — 後端 Docker
-- `make dev` — 前端開發伺服器
-- `make gen-api` — 後端 OpenAPI → `frontend/src/shared/api/schema.d.ts`（不需啟動後端）。**後端 schema／endpoint
-  一改就跑並 commit 產物**，前端 `tsc` 會指出要跟著改的地方
-- `make check` — 前後端全部品質檢查（= `check-backend` + `check-frontend`）
-- `make deploy-frontend` — 前端部署到 S3 + CloudFront（見 docs/deployment.md）
+- `make up` / `make down` / `make logs` / `make migrate` — backend Docker
+- `make dev` — frontend dev server
+- `make gen-api` — backend OpenAPI → `frontend/src/shared/api/schema.d.ts` (backend need not be running).
+  Run it and commit the output whenever a backend schema/endpoint changes; frontend `tsc` then points at
+  everything that must follow.
+- `make check` — every quality check for both halves (= `check-backend` + `check-frontend`)
 
-## 整合層（本 repo 相對兩個上游模板的新增物）
+## Integration layer (what this repo adds on top of the two upstream templates)
 
-- **Auth 串接**：登入只有 LINE Login，無帳密登入。後端用 django-allauth 的
-  LINE provider（`SOCIALACCOUNT_ONLY=True`）處理與 LINE 的 OAuth 交換，自訂
-  adapter（`backend/apps/accounts/adapters.py`）把登入結果換成既有的 opaque
-  bearer token，存進一次性 exchange code（60 秒 TTL）後導回前端
-  `/login/callback?code=...`。前端 `django-adapter.ts` 的 `completeLineLogin(code)`
-  打 `POST /auth/line/exchange` 換 token，再沿用兩段式流程打 `GET /auth/me`。
-  `main.tsx` 啟動時 `setAuthAdapter(djangoAuthAdapter)`。後端無角色概念 →
-  adapter 固定 `roles: ["user"]`（RBAC 擴充點）。本地測試 LINE callback 需要
-  公開 HTTPS，見 `docs/development.md` 的 cloudflared 章節。
-- **dev 串接**：前端 `.env.development` 設 `VITE_API_BASE_URL=http://localhost:8000`
-  跨源直連；後端 CORS dev 預設允許 5173，改 port 要同步。
-- **CI**：`.github/workflows/{backend,frontend}-ci.yml`，`paths` filter 各管各的；
-  子目錄不放 workflow。
-- **文件**：`docs/development.md`（開發）、`docs/deployment.md`（部署）。
-  後端部署細節在 `backend/docs/`，頂層文件只寫整合層、不重複。
+- **Auth**: LINE Login only, no username/password. The backend uses django-allauth's LINE provider
+  (`SOCIALACCOUNT_ONLY=True`) for the OAuth exchange; a custom adapter (`backend/apps/accounts/adapters.py`)
+  turns the login into the existing opaque bearer token, stores it behind a one-time exchange code
+  (60 s TTL), and redirects to the frontend `/login/callback?code=...`. The frontend
+  `django-adapter.ts` `completeLineLogin(code)` calls `POST /auth/line/exchange` for the token, then
+  `GET /auth/me`. `main.tsx` calls `setAuthAdapter(djangoAuthAdapter)` at startup. The backend has no
+  roles → the adapter hard-codes `roles: ["user"]` (the RBAC extension point). Testing the LINE callback
+  locally needs public HTTPS — see the cloudflared section of `docs/development.md`.
+- **Dev wiring**: frontend `.env.development` sets `VITE_API_BASE_URL=http://localhost:8000` (cross-origin);
+  backend dev CORS allows 5173 by default — change the port on both sides together.
+- **CI**: `.github/workflows/{backend,frontend}-ci.yml`, each with its own `paths` filter; no workflows
+  in the subdirectories.
+- **Docs**: `docs/development.md`, `docs/deployment.md`. Backend deployment detail lives in
+  `backend/docs/`; top-level docs cover only the integration layer.
 
-## 前後端契約
+## Frontend–backend contract
 
-- 回應一律 `BaseResponse`：成功 `{"data": <T>, "error": null}`，失敗
-  `{"data": null, "error": {"code": <HTTP 狀態碼>, "message", "reason"}}`。細節：後端
-  `backend/CLAUDE.md`「Responses / Errors」、前端 `frontend/CLAUDE.md`「API client」。
-- 前端 `shared/api` client 自動解包 `data`；錯誤分支看 `ApiError.reason`（後端 `config/errors.py` 的
-  `ErrorCode`），不比對 `message`。
-- 前端型別一律來自 `make gen-api` 產生的 `schema.d.ts`，不手寫後端型別。
+- Every response is a `BaseResponse`: success `{"data": <T>, "error": null}`, failure
+  `{"data": null, "error": {"code": <HTTP status>, "message", "reason"}}`.
+- The frontend `shared/api` client unwraps `data` automatically; branch on `ApiError.reason`
+  (the backend `ErrorCode` in `config/errors.py`), never on `message`.
+- Frontend types come only from the `schema.d.ts` generated by `make gen-api`; never hand-write backend types.
 
-## 修改守則
+## Change rules
 
-- 不重組兩個子模板的內部結構；整合物放頂層或各自模板的既有擴充點
-  （adapter、env、compose）。
-- 後端 API 變更會影響 `django-adapter.ts` 的對接（schema 見
-  `backend/apps/accounts/schema.py`）——改 auth 相關 endpoint 時兩邊一起看，並跑 `make gen-api`。
+- Do not restructure the inside of either sub-template; integration code goes at the top level or
+  into the existing extension points (adapter, env, compose).
+- Backend auth endpoint changes affect `django-adapter.ts` (schemas in `backend/apps/accounts/schema.py`) —
+  change both sides together and run `make gen-api`.
 
 ## Git
 
-- Commit 格式 `<type>: <中文說明>`，type 只有 `feat`／`fix`／`docs`／`style`／`refactor`／`test`／`chore`。
-  **說明用中文**、**不使用 scope**（不寫 `feat(frontend):`；前後端一起改就寫在說明裡）。
-- 破壞性變更（呼叫端不改程式就會壞）在 type 後加 `!`：`feat!: /auth/me 移除 email 欄位`。
-- 分支 `<類型>/<描述>`，類型只有 `feat`／`fix`／`refactor`／`docs`／`chore`；不直接 commit 到 `main`。
+- Commit format `<type>: <description in Chinese>`; type is one of `feat` / `fix` / `docs` / `style` /
+  `refactor` / `test` / `chore`. The description is written in Chinese. No scope (never `feat(frontend):`;
+  when both halves change, say so in the description).
+- Breaking change (callers break unless they change code): add `!` after the type — `feat!: /auth/me 移除 email 欄位`.
+- Branch `<type>/<description>`, type one of `feat` / `fix` / `refactor` / `docs` / `chore`;
+  never commit directly to `main`.
