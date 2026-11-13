@@ -2,6 +2,7 @@ from loguru import logger
 from ninja import Router
 
 from apps.accounts.authentication import BearerAuth
+from apps.accounts.roles import get_user_roles
 from apps.accounts.schema import LineExchangeRequest, MeResponse, TokenResponse
 from apps.accounts.services import AuthService
 from apps.core.schema import BaseResponse
@@ -30,7 +31,8 @@ def logout(request):
 
 @auth_router.get("/me", response=BaseResponse[MeResponse], auth=BearerAuth())
 def me(request):
-    """Return the authenticated user's profile, including LINE display name / avatar if present."""
+    """Return the authenticated user's profile: LINE display name / avatar if present, and ``roles``
+    (see ``apps/accounts/roles.py``)."""
     user = request.auth
     line_profile = getattr(user, "line_profile", None)
     logger.info("[View] profile read - user_id: {uid}", uid=user.id)
@@ -41,5 +43,6 @@ def me(request):
             email=user.email,
             display_name=line_profile.display_name if line_profile else None,
             picture_url=line_profile.picture_url if line_profile else None,
+            roles=get_user_roles(user),
         )
     )

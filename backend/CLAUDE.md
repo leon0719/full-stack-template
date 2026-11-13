@@ -57,7 +57,8 @@ Client → Uvicorn (ASGI) → Django Ninja API (config/urls.py)
   (`apps/core/schema.py`); delete → 200 + `BaseResponse()`, not 204. `/` and `/health/*` are probes, not wrapped.
 - **Errors**: raise `AppError(status, ErrorCode.X, message)` (`config/errors.py`; client-branchable, becomes
   `error.reason`) or plain `HttpError` (`reason: null`); `exceptions.py` renders the envelope. Never
-  hand-build an error response.
+  hand-build an error response. File downloads return the file via `apps.core.exports.attachment_response`
+  (errors still use the envelope).
 
 ### App Layering (file responsibilities)
 - **views.py** — Django Ninja endpoints only. HTTP-layer delegation; no business logic, no ORM.
@@ -71,14 +72,28 @@ Client → Uvicorn (ASGI) → Django Ninja API (config/urls.py)
 
 New app → use the **scaffold-app** skill. New endpoint/resource → **add-resource**. New model → **register-admin**.
 
+### Cross-cutting rules (details in `docs/`)
+- **Roles**: gate endpoints with `auth=require_role(Role.X)` (`apps.accounts.authentication`); in logic use
+  `apps.accounts.roles.has_role()`. Roles are Django Groups named in `Role` — never check group names/`is_staff` ad hoc.
+  `/auth/me` returns `roles`; adding a role also means the frontend `Role` type.
+- **Audit**: business writes call `apps.audit.services.record_audit()` inside the same `transaction.atomic()`;
+  every editable `ModelAdmin` inherits `apps.audit.admin.AuditedAdminMixin`.
+- **Notifications**: only via `NotificationService.enqueue_email()` / `enqueue_line()` / `enqueue_line_to_user()`
+  (outbox) — never `send_mail()` or the LINE API directly from a request/service. LINE push uses the Messaging API
+  channel (`LINE_MESSAGING_*`), not the Login channel.
+- **Long work** (more than a request should hold): `JobService.start()` + a `@tracked_job` task (`apps/jobs/tasks.py`).
+
 ### Reference apps (copy their shape, don't reinvent)
 - **`apps/articles`** — canonical CRUD: router `auth=BearerAuth()`, owner-scoped `get_owned_or_404()`
   (IDOR → 404), `StandardPagination` inside `BaseResponse`, `FilterSchema` (`?status=&q=`),
   `WriteRateThrottle`, atomic-claim Celery side effect, `external_services.py` webhook example.
 - **`apps/accounts`** — LINE-only login via django-allauth; `adapters.py` trades the login for a one-time
   exchange code, `POST /auth/line/exchange` (per-IP `LoginThrottle`) returns an opaque bearer token
-  (SHA-256 digest stored). `BearerAuth` guards `POST /auth/logout`, `GET /auth/me`.
+  (SHA-256 digest stored). `BearerAuth` guards `POST /auth/logout`, `GET /auth/me` (returns `roles`);
+  `require_role()` = `BearerAuth` + role check (`roles.py`, Django Groups).
 - **`apps/health`** — `/health/live` (process only) and `/health/ready` (DB + cache + Celery).
+- **`apps/notifications`** / **`apps/jobs`** / **`apps/holidays`** — outbox + LINE push/webhook, long-running jobs,
+  Taiwan working days. **`apps/audit`** — `AuditLog` (LINE login/logout, admin login, business writes, admin changes).
 
 Auth/throttle/paginator classes are stock Django Ninja — no Knox/DRF/django-ratelimit. Throttle counters
 use the Django cache: Redis in `base.py`, in-memory in `local.py` (tests need no Redis).
@@ -111,6 +126,7 @@ built-in `/code-review` (bugs). Report unverified items as unverified — never 
 - `backend-standards.md` — **before adding an app/service/migration** (layering, DB, secrets, observability, tests)
 - `integration-standards.md` — **before third-party APIs, caching, Celery, webhooks**
 - `local-development.md` — env vars, daily commands, troubleshooting
-- `deployment.md` — `.env.prod`, deploy steps, Docker/whitenoise/proxy headers
+- `deployment.md` — `.env.prod`, deploy steps, CD job, backups/restore, graceful shutdown
 - `caddy.md` — Cloudflare + Caddy, real client IP, `FORWARDED_ALLOW_IPS` / `NINJA_NUM_PROXIES`
+- `nginx.md` — host nginx instead of Caddy (when to choose which, `docker/nginx/` example)
 - `alerting.md` — Sentry/Slack, beat heartbeat, queue depth, failure signals

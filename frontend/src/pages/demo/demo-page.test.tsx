@@ -59,4 +59,25 @@ describe("DemoPage", () => {
     await user.click(screen.getByRole("button", { name: /送出/i }));
     await waitFor(() => expect(screen.getByText(/Hello, Ada/)).toBeInTheDocument());
   });
+
+  it("shows the shared/ui, upload and realtime demos without opening an SSE connection", () => {
+    stubFetchOk();
+    const eventSource = vi.fn();
+    vi.stubGlobal("EventSource", eventSource);
+    renderWithClient(<DemoPage />);
+    expect(screen.getByRole("heading", { name: "shared/ui 元件" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "上傳與檔案" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "長任務與即時更新" })).toBeInTheDocument();
+    expect(screen.getByText("未連線")).toBeInTheDocument();
+    expect(eventSource).not.toHaveBeenCalled();
+  });
+
+  it("runs the simulated job through useJobPolling", async () => {
+    stubFetchOk();
+    const user = userEvent.setup();
+    renderWithClient(<DemoPage />);
+    await user.click(screen.getByRole("button", { name: "開始模擬任務" }));
+    expect(await screen.findByRole("button", { name: "取消任務" })).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+  });
 });

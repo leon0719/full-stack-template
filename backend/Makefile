@@ -2,7 +2,7 @@
 .PHONY: install update up down logs build rebuild
 .PHONY: migrate makemigrations shell createsuperuser
 .PHONY: docker-clean logs-api logs-db logs-worker logs-beat
-.PHONY: prod-up prod-down prod-logs prod-build
+.PHONY: prod-up prod-down prod-logs prod-build prod-backup prod-migrate
 
 # Docker compose files
 COMPOSE_DEV = docker compose -f docker/docker-compose.dev.yml
@@ -48,7 +48,9 @@ help:
 	@echo ""
 	@echo "生產環境 (Docker):"
 	@echo "  make prod-build        - 建構生產映像"
-	@echo "  make prod-up           - 啟動生產容器"
+	@echo "  make prod-backup       - 備份生產 DB 到 S3 一次 (BACKUP_S3_URI 未設定時只印警告)"
+	@echo "  make prod-migrate      - 用新映像跑一次 migration (舊容器照常服務)"
+	@echo "  make prod-up           - 先備份再啟動生產容器 (SKIP_BACKUP=1 略過備份)"
 	@echo "  make prod-down         - 停止生產容器"
 	@echo "  make prod-logs         - 查看生產日誌"
 	@echo ""
@@ -141,7 +143,18 @@ docker-clean:
 prod-build:
 	$(COMPOSE_PROD) build
 
+# 單次備份（docker/db_backup/backup.sh 的 BACKUP_ONESHOT 模式）：失敗就非 0 結束，
+# 讓 prod-up / CD 停在 migration 之前——migration 沒有回頭路，先有備份才往下走。
+prod-backup:
+	$(COMPOSE_PROD) run --rm -T -e BACKUP_ONESHOT=1 backup
+
+# 用剛 build 好的映像跑一次 migrate job（等同 prod-up 時的 migrate service，但可以先單獨確認成功）。
+prod-migrate:
+	$(COMPOSE_PROD) run --rm -T migrate
+
+# 預設先備份再 up；CD 已經在 build 前備份過，會帶 SKIP_BACKUP=1 避免重複。
 prod-up:
+	@if [ "$(SKIP_BACKUP)" != "1" ]; then $(MAKE) prod-backup; fi
 	$(COMPOSE_PROD) up -d
 	@echo ""
 	@echo "生產環境已啟動！"

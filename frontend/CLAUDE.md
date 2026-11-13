@@ -57,7 +57,15 @@ primitives, read `docs/platform.md`.
 - **i18n**: `const { t } = useTranslation()`; add keys to `locales/zh-TW.json` first (it is the type source).
   zod schema messages are i18n keys.
 - **Errors**: `reportError(error, context?)`; `<ErrorBoundary>` already wraps the router.
-- **Forms**: `useZodForm(schema)`.
+- **Forms**: `useZodForm(schema)` + `<Field label htmlFor error={errors.x}>` (translates the zod key).
+- **Feedback UI** (`shared/ui`): `await confirmDialog({ message, danger })`, `toast.success/error(msg)`,
+  `<EmptyState>`, `<ErrorState onRetry>`, `<Spinner>`, `<PageHeader>`, `<Badge tone>`. Never `window.confirm`/`alert`.
+- **Files**: `<FileDropzone>`; `compressImage()`, `validateColumns()` (CSV/XLSX, never the npm `xlsx` package),
+  `downloadBlob()` from `shared/lib`; `apiPost(path, formData)`, `apiUpload()` (progress), `apiDownload()` from `shared/api`.
+- **Async/realtime** (`shared/api`): `useJobPolling(jobId)` for `GET /jobs/{id}`; `useEventStream({ path, invalidate })`
+  for SSE (short-lived stream token via `getStreamToken`, never the access token). This repo's backend has `/jobs`
+  but **no SSE / stream-token endpoint yet** — the hook is ready, the backend side is not.
+- **Time display**: `formatDateTime/formatDate/formatRelativeTime` (Asia/Taipei, current i18n locale).
 
 ## Frontend–backend conventions
 

@@ -29,6 +29,9 @@ class ErrorCode(StrEnum):
     VALIDATION_ERROR = "validation_error"
     INTERNAL_ERROR = "internal_error"
     BAD_REQUEST = "bad_request"
+    EXPORT_TOO_LARGE = "export_too_large"
+    INVALID_SIGNATURE = "invalid_signature"
+    JOB_NOT_CANCELLABLE = "job_not_cancellable"
 
 
 class AppError(HttpError):

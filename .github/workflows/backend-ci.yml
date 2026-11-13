@@ -10,9 +10,11 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs for the same ref (new push to a PR) to save runners — but never on
+# main: a newer push must not cancel a run whose deploy job is halfway through a migration.
 concurrency:
   group: backend-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 defaults:
   run:
@@ -159,11 +161,118 @@ jobs:
         working-directory: .
         run: docker rm -f smoke || true
 
+  # 主機 nginx 站台設定範例（backend/docker/nginx/，見 backend/docs/nginx.md）的語法檢查。設定引用
+  # 主機上的憑證路徑，CI 沒有這些檔案，先產生自簽憑證頂替。用 stdin 餵入，不依賴 bind mount。
+  nginx:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: nginx -t
+        run: |
+          docker run --rm -i nginx:1.28-alpine@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236 sh -c '
+            set -e
+            cat > /etc/nginx/conf.d/api.conf
+            apk add --no-cache openssl >/dev/null
+            mkdir -p /etc/letsencrypt/live/api.example.com
+            openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=api.example.com" \
+              -keyout /etc/letsencrypt/live/api.example.com/privkey.pem \
+              -out /etc/letsencrypt/live/api.example.com/fullchain.pem >/dev/null 2>&1
+            nginx -t
+          ' < docker/nginx/api.conf
+
+  # CD（後端）：CI 全部通過、push 到 main、且 repo variable DEPLOY_ENABLED == 'true' 才跑——模板預設不部署。
+  # SSH 進主機 → 快轉到這次 CI 驗過的 commit → 備份 → build → migrate → up → 輪詢 /health/ready。
+  # 因為 workflow 有 paths filter，只改前端的 push 不會觸發後端部署（前端走 make deploy-frontend）。
+  # 設定（Settings → Secrets and variables → Actions）與主機前置作業見 backend/docs/deployment.md「自動部署（CD）」。
+  deploy:
+    needs: [quality, tests-postgres, audit, docker, nginx]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    # GitHub Environment：可加 required reviewers / 部署分支限制，secrets 也能只給這個 environment。
+    environment: production
+    # 一次只跑一個部署；不取消進行中的（半套部署比慢一點更糟）。
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    timeout-minutes: 30
+    defaults:
+      run:
+        # 本 job 不做 checkout，workflow 層級的 working-directory（backend）不存在。
+        working-directory: .
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$KNOWN_HOSTS" ]; then
+            echo "::error::DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS secret 未設定（見 backend/docs/deployment.md「自動部署（CD）」）"
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # 固定 host key（ssh-keyscan 的輸出存成 secret），不用 StrictHostKeyChecking=no：
+          # 否則 DNS/路由被劫持時，CI 會把部署指令送給冒牌主機。
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy over SSH
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ vars.DEPLOY_PORT || '22' }}
+          # 主機上這個 monorepo 的 clone 位置（repo 根目錄，不是 backend/）。
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          HEALTH_RETRIES: ${{ vars.DEPLOY_HEALTH_RETRIES || '30' }}
+          SHA: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$PORT" -o BatchMode=yes -o ConnectTimeout=15 \
+            "$DEPLOY_USER@$HOST" bash -s -- "$DEPLOY_PATH" "$SHA" "$HEALTH_RETRIES" <<'REMOTE'
+          set -euo pipefail
+          DEPLOY_PATH="$1"; SHA="$2"; HEALTH_RETRIES="$3"
+          cd "$DEPLOY_PATH"
+
+          echo "==> git: fast-forward to $SHA"
+          # 只快轉到「這次 CI 驗過的 commit」：不會順便部署之後才 push、還沒跑完 CI 的版本；
+          # 主機上有人手改過檔案或分支分岔時直接失敗，不會 reset 掉別人的修改。
+          git fetch --quiet origin main
+          git merge --ff-only "$SHA"
+
+          cd backend
+          COMPOSE="docker compose --env-file .env.prod -f docker/docker-compose.prod.yml"
+          echo "==> backup (before anything changes; a failed backup aborts the deploy)"
+          make prod-backup
+          echo "==> build"
+          make prod-build
+          echo "==> migrate (old containers keep serving; migrations must be expand/contract)"
+          make prod-migrate
+          echo "==> up"
+          make prod-up SKIP_BACKUP=1
+
+          echo "==> wait for /health/ready (max ${HEALTH_RETRIES} x 5s)"
+          for i in $(seq 1 "$HEALTH_RETRIES"); do
+            if curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8000/health/ready; then
+              echo "deploy OK: $(git rev-parse --short HEAD)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::/health/ready did not return 200 after ${HEALTH_RETRIES} attempts"
+          $COMPOSE ps
+          $COMPOSE logs --no-color --tail 100 api celery-worker celery-beat migrate
+          exit 1
+          REMOTE
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
   # CI 紅了但沒人知道,等同於沒有 CI。GitHub 預設只寄 email,通常沉在信箱裡。
   # 只在 main 分支失敗時通知 —— PR 的紅燈作者自己看得到,不需要吵整個 channel。
   notify:
     if: failure() && github.ref == 'refs/heads/main'
-    needs: [quality, tests-postgres, audit, docker]
+    needs: [quality, tests-postgres, audit, docker, nginx, deploy]
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack

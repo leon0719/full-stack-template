@@ -35,6 +35,14 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
 
+  # DB 備份 sidecar 的 base image（backend/docker/db_backup/Dockerfile）。postgres major 要
+  # >= 正式 DB 的版本（pg_dump 不能比伺服器舊）。
+  - package-ecosystem: "docker"
+    directory: "/backend/docker/db_backup"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
   # backend/docker/docker-compose.*.yml 引用的 image（如 caddy）
   - package-ecosystem: "docker-compose"
     directory: "/backend/docker"

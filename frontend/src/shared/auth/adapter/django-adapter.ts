@@ -6,12 +6,14 @@ import type { AuthAdapter, User } from "../model/types";
 // 型別由後端 OpenAPI 產生(`make gen-api`),不要手寫
 type MeResponse = components["schemas"]["MeResponse"];
 
-// 後端 accounts 尚無角色概念，固定給 "user"；接 RBAC 時在此對映後端的角色欄位。
+// 角色直接用後端 /auth/me 的 roles(backend/apps/accounts/roles.py:Django Group + 隱含 user、
+// superuser 隱含 admin)。後端 Role 與前端 shared/auth 的 Role 必須同步——新增角色兩邊一起改,
+// make gen-api 後 tsc 會在這裡報型別不相容。id 後端是數字,前端 User.id 統一用字串。
 function toUser(me: MeResponse): User {
   return {
     id: String(me.id),
     name: me.username,
-    roles: ["user"],
+    roles: me.roles,
     displayName: me.display_name ?? undefined,
     pictureUrl: me.picture_url ?? undefined,
   };

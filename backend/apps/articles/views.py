@@ -9,11 +9,12 @@ from apps.articles.schema import (
     ArticleResponse,
     ArticleUpdateRequest,
 )
-from apps.articles.services import ArticleService
+from apps.articles.services import ArticleService, ExportFormat
 from apps.articles.tasks import notify_article_published
+from apps.core.exports import attachment_response
 from apps.core.pagination import StandardPagination
 from apps.core.schema import BaseResponse, Page
-from apps.core.throttling import WriteRateThrottle
+from apps.core.throttling import ExportThrottle, WriteRateThrottle
 
 # Router-level auth: every endpoint below requires a valid bearer token.
 articles_router = Router(tags=["articles"], auth=BearerAuth())
@@ -24,6 +25,30 @@ def list_articles(request, filters: ArticleFilter = Query(...), page: StandardPa
     """List the caller's own articles (paginated: ?page=&page_size=)."""
     qs = ArticleService.list_for_user(request.auth, filters)
     return BaseResponse(data=StandardPagination().paginate_queryset(qs, page, request))
+
+
+# File download, so no BaseResponse envelope on success (errors still use it — e.g. 422 export_too_large).
+@articles_router.get(
+    "/export",
+    throttle=[ExportThrottle()],
+    openapi_extra={
+        "responses": {
+            200: {
+                "description": "xlsx / pdf / zip file (Content-Disposition carries the UTF-8 filename).",
+                "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}},
+            }
+        }
+    },
+)
+def export_articles(
+    request,
+    filters: ArticleFilter = Query(...),
+    file_format: ExportFormat = Query("xlsx", alias="format"),
+):
+    """Download the caller's articles (same ?status= / ?q= as the list) as
+    ?format=xlsx | pdf | zip (zip = both). Capped at EXPORT_MAX_ROWS rows."""
+    export = ArticleService.export(request.auth, filters, file_format)
+    return attachment_response(export.content, export.filename, export.content_type)
 
 
 @articles_router.post("", response={201: BaseResponse[ArticleResponse]}, throttle=[WriteRateThrottle()])
@@ -52,6 +77,5 @@ def update_article(request, article_id: int, payload: ArticleUpdateRequest):
 # Team contract: delete answers 200 + empty envelope, not 204 (clients always parse a body).
 @articles_router.delete("/{int:article_id}", response=BaseResponse[None], throttle=[WriteRateThrottle()])
 def delete_article(request, article_id: int):
-    article = ArticleService.get_owned_or_404(request.auth, article_id)
-    ArticleService.delete(article)
+    ArticleService.delete_owned(request.auth, article_id)
     return BaseResponse()

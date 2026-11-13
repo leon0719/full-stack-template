@@ -19,20 +19,25 @@
 | `related_name` 明確宣告 | ✅ | 每個 FK 都寫，避免 Django 自動產生的 `_set` 反向查詢名稱難猜 |
 | `TimestampedModel` 統一時間戳 | ✅ | `apps/core/models.py` 抽象 mixin 提供 `created_at`/`updated_at`；新 model 一律繼承，不要各自宣告 |
 | DB 連線池 | ✅ | `config/settings/base.py` 的 `DB_CONN_POOL` 分支：`DB_CONN_POOL=True` 時用 psycopg3 pool（`CONN_MAX_AGE=0` + min/max size，因為 uvicorn 自己管連線生命週期，不能疊加 Django persistent connection）；關閉時走傳統 `CONN_MAX_AGE=600` + `CONN_HEALTH_CHECKS=True`。改這段前要理解兩種模式互斥的原因，不要兩個一起開 |
-| 過期資料清除 | ✅ | `AuthToken` 用 `expiry` 欄位；`authenticate_token()` 驗證時 lazy 刪過期 token，`accounts.purge_expired_tokens`（Celery Beat 排程）補刪從未被使用過的過期 token。新增有時效性的資料一律比照這個「lazy 刪 + beat 排程補漏」雙保險模式 |
-| 資料庫備份/還原 | ✅ 刻意外包 | prod compose 不含 DB/Redis，備份策略交給外部託管服務負責（`docs/deployment.md`「維運備忘」）；app 主機本身無狀態，備份/還原不是這個 repo 的責任範圍 |
+| 過期資料清除 | ✅ | `AuthToken` 用 `expiry` 欄位；`BearerAuth` 驗證時 lazy 刪過期 token，`accounts.purge_expired_tokens`（Celery Beat 排程）補刪從未被使用過的過期 token。`AuditLog` 由 `audit.purge_old_audit_logs`（每天 03:30 UTC）刪除超過 `AUDIT_LOG_RETENTION_DAYS`（預設 365，`0` = 不清除）的紀錄；使用者被刪除後 `actor_username` **刻意保留**（稽核軌跡要能看出是誰），隱私政策要求處理刪除權（erasure）時要另外清空。通知 outbox 已結束的紀錄（`notifications.purge_old_notifications`，`NOTIFICATION_RETENTION_DAYS`，pending 的永不清）、已結束的 job（`jobs.purge_old_jobs`，`JOB_RETENTION_DAYS`）同樣由 beat 每天清。新增有時效性的資料一律比照這個「lazy 刪 + beat 排程補漏」雙保險模式 |
+| 資料庫備份/還原 | ✅ 兩層 | 第一層：託管 DB 的自動備份／PITR。第二層：prod compose 的 `backup` sidecar（`docker/db_backup/`）每 24h `pg_dump` 上傳 S3（優先 instance role、不存 key；保留期交給 bucket lifecycle），`make prod-up` 與 CD 部署前都會先跑一次、失敗即中止。還原流程與演練見 `docs/deployment.md`「備份與還原」；失敗靠 `BACKUP_HEARTBEAT_URL` 偵測（`docs/alerting.md` 第 6 節） |
 | Twelve-Factor Config | ✅ | pydantic `Settings` 讀 `.env.{ENV}`，app 不用裸 `os.getenv()` |
 | Secret 不進版控 | ✅ | `.gitignore` 排除 `.env*`；CI gitleaks scanning |
-| Secret 型別化 (`SecretStr`) | ✅ | `SECRET_KEY`/`DATABASE_URL`/`CELERY_BROKER_URL`/`SENTRY_DSN` 等 |
+| Secret 型別化 (`SecretStr`) | ✅ | `SECRET_KEY`/`DATABASE_URL`/`CELERY_BROKER_URL`/`SENTRY_DSN`/`LINE_*_SECRET`/`LINE_MESSAGING_CHANNEL_ACCESS_TOKEN`/`EMAIL_HOST_PASSWORD` 等 |
 | Secret 輪替政策 | ❌ 未定義 | 目前沒有文件化的輪替流程，見下方「Secret 輪替政策」 |
 | 密碼雜湊 (Argon2id) | ✅ | `PASSWORD_HASHERS`，舊 hash 登入時自動升級 |
+| 稽核紀錄（AuditLog） | ✅ | `apps/audit`。安全事件：LINE 登入成功/失敗（`apps/accounts/adapters.py`）、登出（`AuthService.logout`）、Django admin 帳密登入成功/失敗（`apps/accounts/signals.py`，只認 `/admin/` 路徑，避免把 allauth 的 LINE 登入重複記成 admin 登入）。業務寫入在**同一個 `transaction.atomic()`** 內呼叫 `apps.audit.services.record_audit(action, actor=, target=, before=)`：存 target（`app_label.model` + pk）、欄位 diff（`{"field": [old, new]}`）、IP/request_id（request context 自動帶入）；欄位名含 password/secret/token/digest… 的只記「有變更」不記值。參考 `apps/articles/services.py`。Django admin 的新增/修改/刪除（含多對多，例如角色 group）由 `apps.audit.admin.AuditedAdminMixin` 記成 `admin_add/admin_change/admin_delete`——**新的 ModelAdmin 一律繼承它**（唯讀的除外） |
+| 稽核紀錄防竄改 | ⚠️ 部分 | `AuditLog` 在 Django admin 是唯讀（不能新增/修改/刪除），但有 DB 權限的人仍可改 row，**不是 tamper-evident**；合規要求時改用只有 INSERT 權限的 DB role，或把稽核事件送外部 sink |
+| RBAC：Django `Group` 當角色，不加 role 欄位 | ✅ 刻意 | 角色 = 名稱在 `apps.accounts.roles.Role` 內的 group；每個登入者隱含 `user`、`is_superuser` 隱含 `admin`。選 Group 的理由：本專案用內建 `User`，加 role 欄位得換 custom user model（專案中途換 `AUTH_USER_MODEL` 非常痛）或另開 profile 表；Group 是內建的多對多、admin 直接可管、多角色天然支援。代價是查角色多一次 query（同一個 request 內快取）。端點用 `auth=require_role(Role.ADMIN)`（缺角色 → 403 `permission_denied`），業務邏輯內用 `has_role()`；`/auth/me` 回 `roles` 給前端 `usePermission`。新增角色：`Role` 加成員 + 建 group 的 data migration（照抄 `accounts/migrations/0003_create_role_groups.py`）+ 前端 `shared/auth` 的 `Role` 型別 |
+| 檔案匯出（xlsx / 中文 PDF / zip） | ✅ | `apps/core/exports.py` 的純函式（`build_xlsx` / `build_pdf_table` / `build_zip`）+ `attachment_response()`（RFC 5987 中文檔名）。xlsx 標題樣式、依內容估欄寬、`=`/`+`/`-`/`@` 開頭強制存文字（formula injection）。PDF 嵌入 `fonts-arphic-uming` 的 UMingTW——**不是 `fonts-noto-cjk`**：Noto CJK 是 CFF 外框，reportlab 不支援（註冊時直接丟錯）；本機沒有字型檔時退回不嵌入的 CID 字型（只適合看版面）。整份檔案在記憶體組完，同步端點以 `EXPORT_MAX_ROWS` 擋上限，更大的改走 `apps/jobs` |
+| 台灣工作日 | ✅ | `apps.holidays.services.is_working_day()` / `next_working_day()`：`Holiday` 表只存「例外日」（平日放假 / 週末補班），其餘照週一到週五。`manage.py import_holidays <年>` 匯入人事行政總處行事曆（或 `--file` 用自己下載的 JSON，不連網），可重複執行；颱風假等臨時停班不在年度行事曆內，從 admin 手動加 |
 | PII 去敏 (log/Sentry) | ✅ | `send_default_pii=False` + `max_request_body_size="never"`；`_sanitize_errors()` |
 | 冪等性設計 | ✅ | 見 `api-standards.md` |
 | 快取穿透/雪崩防護 | ⚠️ 不適用 | cache 僅用於健康檢查/throttle counter，非讀穿透型業務快取；加熱資料快取時才需要補（空值 sentinel + TTL 抖動） |
 | 限流 (Rate Limiting) | ✅ | `AnonRateThrottle`/`WriteRateThrottle` |
 | 結構化 JSON 日誌 | ✅ | loguru，prod `serialize=True` |
 | Log 等級規則 (4xx warning / 5xx error) | ✅ | CLAUDE.md Code Style |
-| 優雅關機 (SIGTERM) | ✅ | `uvicorn_run.py` `timeout_graceful_shutdown=30` |
+| 優雅關機 (SIGTERM) | ✅ | uvicorn 是 PID 1（exec form `CMD`），`UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT`（30s）< compose `stop_grace_period` 35s；Celery worker 以 `REMAP_SIGTERM=SIGQUIT` + `CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT`（30s）< 60s，沒做完的任務立刻退回佇列。細節見 `docs/deployment.md`「優雅關機」 |
 | `X-Request-ID` 貫穿 log | ✅ | `config/middleware.py` 的 `RequestIDMiddleware`，見 `api-standards.md`（這條先前誤標成「暫不補」，是文件沒同步，功能其實已經在） |
 | 告警覆蓋 Sentry 看不到的故障 | ✅ | beat 心跳、佇列積壓、task 失敗 signal，見 `docs/alerting.md` |
 | Unit/Integration 測試標記分離 | ✅ | `pyproject.toml` strict markers |

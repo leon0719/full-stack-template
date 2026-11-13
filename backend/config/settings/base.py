@@ -110,6 +110,42 @@ class Settings(BaseSettings):
     # (demo consumer of config/external_api_handler.py)
     ARTICLE_PUBLISHED_WEBHOOK_URL: str = ""
 
+    # 稽核(apps/audit):AuditLog 保留天數,beat 每天清除更舊的紀錄(0 = 不清除)。
+    AUDIT_LOG_RETENTION_DAYS: int = Field(default=365, ge=0)
+
+    # 匯出(apps/core/exports.py):同步匯出端點的列數上限,超過請改走背景 job。
+    EXPORT_MAX_ROWS: PositiveInt = 5000
+    THROTTLE_EXPORT_RATE: str = "10/m"
+
+    # Email(apps/notifications):EMAIL_HOST 留空 = 不寄信、只寫 log(LogOnlyEmailBackend)。
+    # local.py 固定用 console backend;測試由 Django 自動換成 locmem。
+    EMAIL_HOST: str = ""
+    EMAIL_PORT: PositiveInt = 587
+    EMAIL_HOST_USER: str = ""
+    EMAIL_HOST_PASSWORD: SecretStr = SecretStr("")
+    EMAIL_USE_TLS: bool = True
+    EMAIL_TIMEOUT: PositiveInt = 10
+    DEFAULT_FROM_EMAIL: str = "noreply@example.com"
+
+    # LINE Messaging API(apps/notifications,推播 + inbound webhook)。跟上面的 LINE Login
+    # channel 是「不同的 channel」,所以名稱都帶 MESSAGING 前綴、不要跟 LINE_LOGIN_* 混用。
+    # ACCESS_TOKEN 留空 = LINE 推播只寫 log;CHANNEL_SECRET 留空 = inbound webhook 一律拒絕(無法驗簽)。
+    # 要用 LineProfile 的 userId 推播,兩個 channel 必須在同一個 provider 底下(見 docs/integration-standards.md)。
+    LINE_MESSAGING_CHANNEL_ACCESS_TOKEN: SecretStr = SecretStr("")
+    LINE_MESSAGING_CHANNEL_SECRET: SecretStr = SecretStr("")
+
+    # 通知 outbox:失敗重試幾次後放棄(並告警);已送出/已放棄的紀錄保留天數(0 = 不清除)。
+    NOTIFICATION_MAX_RETRIES: PositiveInt = 5
+    NOTIFICATION_RETENTION_DAYS: int = Field(default=90, ge=0)
+
+    # 長任務(apps/jobs):已結束的 job 紀錄保留天數(0 = 不清除)。
+    JOB_RETENTION_DAYS: int = Field(default=30, ge=0)
+
+    # Celery worker 收到 SIGTERM(需搭配環境變數 REMAP_SIGTERM=SIGQUIT,prod compose 已設)
+    # 時,先等執行中的任務這麼多秒,再把沒做完的任務立刻退回佇列。必須小於 compose 的
+    # stop_grace_period(60s),否則 Docker 先 SIGKILL,任務要等 visibility_timeout(1h)才重送。
+    CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT: float = Field(default=30.0, ge=0)
+
     def _parse_comma_separated(self, value: str) -> list[str]:
         return [v.strip() for v in value.split(",") if v.strip()]
 
@@ -178,6 +214,12 @@ class Settings(BaseSettings):
                 f'see docs/alerting.md), or set SENTRY_DSN="{SENTRY_DSN_OPT_OUT}" to opt out explicitly.'
             )
 
+        # 真的設了 SMTP 卻沿用範例寄件人,信會被收件端以 SPF/DMARC 擋掉——而且寄件端看不到任何錯誤。
+        if self.EMAIL_HOST.strip() and self.DEFAULT_FROM_EMAIL.strip().lower().endswith("@example.com"):
+            raise ValueError(
+                "DEFAULT_FROM_EMAIL not set: EMAIL_HOST is configured but the sender is still example.com."
+            )
+
         return self
 
 
@@ -207,6 +249,10 @@ INSTALLED_APPS = [
     "apps.health",
     "apps.accounts",
     "apps.articles",
+    "apps.audit",
+    "apps.notifications",
+    "apps.jobs",
+    "apps.holidays",
     "django.contrib.sites",
     "allauth",
     "allauth.account",
@@ -306,6 +352,10 @@ PASSWORD_HASHERS = [
 # CORS
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = settings.get_cors_allowed_origins()
+# The frontend is cross-origin (dev 5173 → 8000, prod CloudFront → api domain), and browsers hide
+# non-safelisted response headers from fetch() unless exposed. apiDownload() reads the filename of
+# file exports (GET /articles/export) from Content-Disposition.
+CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 
 # ---------------------------------------------------------------------------
 # Cache (Redis) — also backs Django Ninja throttling counters.
@@ -334,6 +384,7 @@ AUTH_TOKEN_TTL_DAYS = settings.AUTH_TOKEN_TTL_DAYS
 # ---------------------------------------------------------------------------
 THROTTLE_WRITE_RATE = settings.THROTTLE_WRITE_RATE
 THROTTLE_LOGIN_RATE = settings.THROTTLE_LOGIN_RATE
+THROTTLE_EXPORT_RATE = settings.THROTTLE_EXPORT_RATE
 
 # ---------------------------------------------------------------------------
 # Pagination (consumed by apps.core.pagination)
@@ -345,6 +396,52 @@ MAX_PAGE_SIZE = settings.MAX_PAGE_SIZE
 # External integrations (consumed by apps.articles.external_services)
 # ---------------------------------------------------------------------------
 ARTICLE_PUBLISHED_WEBHOOK_URL = settings.ARTICLE_PUBLISHED_WEBHOOK_URL
+
+# ---------------------------------------------------------------------------
+# Audit (consumed by apps.audit.tasks)
+# ---------------------------------------------------------------------------
+AUDIT_LOG_RETENTION_DAYS = settings.AUDIT_LOG_RETENTION_DAYS
+
+# ---------------------------------------------------------------------------
+# Exports (consumed by apps.core.exports)
+# ---------------------------------------------------------------------------
+EXPORT_MAX_ROWS = settings.EXPORT_MAX_ROWS
+
+# ---------------------------------------------------------------------------
+# Email (consumed by apps.notifications) — Django 6.1 MAILERS
+# ---------------------------------------------------------------------------
+# EMAIL_HOST 有值 → SMTP;留空 → LogOnlyEmailBackend(只寫 log,不寄信)。local.py 一律
+# 換成 console backend,測試由 Django 自動換成 locmem(setup_test_environment)。
+DEFAULT_FROM_EMAIL = settings.DEFAULT_FROM_EMAIL
+if settings.EMAIL_HOST.strip():
+    MAILERS = {
+        "default": {
+            "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+            "OPTIONS": {
+                "host": settings.EMAIL_HOST,
+                "port": settings.EMAIL_PORT,
+                "username": settings.EMAIL_HOST_USER,
+                "password": settings.EMAIL_HOST_PASSWORD.get_secret_value(),
+                "use_tls": settings.EMAIL_USE_TLS,
+                "timeout": settings.EMAIL_TIMEOUT,
+            },
+        }
+    }
+else:
+    MAILERS = {"default": {"BACKEND": "apps.notifications.mail_backends.LogOnlyEmailBackend"}}
+
+# ---------------------------------------------------------------------------
+# Notifications / LINE Messaging API (consumed by apps.notifications)
+# ---------------------------------------------------------------------------
+LINE_MESSAGING_CHANNEL_ACCESS_TOKEN = settings.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN.get_secret_value()
+LINE_MESSAGING_CHANNEL_SECRET = settings.LINE_MESSAGING_CHANNEL_SECRET.get_secret_value()
+NOTIFICATION_MAX_RETRIES = settings.NOTIFICATION_MAX_RETRIES
+NOTIFICATION_RETENTION_DAYS = settings.NOTIFICATION_RETENTION_DAYS
+
+# ---------------------------------------------------------------------------
+# Jobs (consumed by apps.jobs)
+# ---------------------------------------------------------------------------
+JOB_RETENTION_DAYS = settings.JOB_RETENTION_DAYS
 
 # ---------------------------------------------------------------------------
 # django-allauth — LINE Login only. SOCIALACCOUNT_ONLY disables every local
@@ -426,6 +523,11 @@ CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000
 # through Django's LOGGING into loguru (JSON in prod) like everything else.
 # Pairs with the setup_logging signal handler in config/celery.py.
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
+# Soft shutdown(Celery 5.5+):只在 cold shutdown 時生效,所以 prod compose 另設
+# REMAP_SIGTERM=SIGQUIT 讓 Docker 的 SIGTERM 走 cold shutdown:先等執行中的任務這麼多秒,
+# 再取消沒做完的任務並「立刻」退回佇列(acks_late),而不是被 SIGKILL 後等 visibility_timeout。
+# 有任務在跑時會固定等滿這個秒數(Celery 的實作是 sleep),沒有任務時立刻結束。
+CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT = settings.CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT
 
 # Periodic tasks. DatabaseScheduler syncs these entries into the DB on beat
 # startup; manage/override them afterwards from the Django admin. That runtime
@@ -446,6 +548,24 @@ CELERY_BEAT_SCHEDULE = {
     "check-queue-depth": {
         "task": "core.check_queue_depth",
         "schedule": crontab(minute="*/5"),
+    },
+    "purge-old-audit-logs": {
+        "task": "audit.purge_old_audit_logs",
+        "schedule": crontab(hour=3, minute=30),  # daily at 03:30 UTC
+    },
+    # 通知 outbox 補送:撿起「建立超過 1 分鐘仍未送出、未放棄、未被認領」的通知重新排入。
+    "retry-pending-notifications": {
+        "task": "notifications.retry_pending_notifications",
+        "schedule": crontab(minute="*/10"),
+        "options": {"expire_seconds": 540},
+    },
+    "purge-old-notifications": {
+        "task": "notifications.purge_old_notifications",
+        "schedule": crontab(hour=4, minute=0),  # daily at 04:00 UTC
+    },
+    "purge-old-jobs": {
+        "task": "jobs.purge_old_jobs",
+        "schedule": crontab(hour=4, minute=15),  # daily at 04:15 UTC
     },
 }
 

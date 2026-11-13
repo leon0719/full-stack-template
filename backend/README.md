@@ -87,8 +87,8 @@ Environment is selected with the `ENV` variable (`local` by default), which pick
 ## Production Deployment (single-host Docker Compose)
 
 Step-by-step guide with the full env-var reference:
-[docs/deployment.md](docs/deployment.md) · Cloudflare + Caddy setup:
-[docs/caddy.md](docs/caddy.md)
+[docs/deployment.md](docs/deployment.md) (incl. backups/restore and the opt-in CD job) ·
+Cloudflare + Caddy setup: [docs/caddy.md](docs/caddy.md) · host nginx instead: [docs/nginx.md](docs/nginx.md)
 
 Bring the stack up with the prod compose file, but get these right first — each one
 fails silently or insecurely if skipped:
@@ -138,10 +138,14 @@ config/            # Project config: settings, urls, celery, logging, exceptions
 apps/
   core/            # Shared Celery tasks + TimestampedModel mixin
   health/          # Health/readiness endpoints
-  accounts/        # Example: token auth/authz (LINE login exchange/logout/me)
-  articles/        # Example: CRUD + ownership + pagination + throttle + task
+  accounts/        # Example: token auth (LINE login exchange/logout/me) + roles (RBAC)
+  articles/        # Example: CRUD + ownership + pagination + throttle + task + xlsx/PDF/zip export + audit
+  audit/           # Audit log: LINE login/logout + admin login + business writes (record_audit) + admin changes
+  notifications/   # Email + LINE push via an outbox (Celery send, beat retry, abandon → alert) + LINE webhook
+  jobs/            # Long-running Celery jobs: progress polling + cancel, owner-scoped
+  holidays/        # Taiwan working days (Holiday overrides + import_holidays command)
 scripts/           # Dev utilities (version bump, unused-code scan)
-docker/            # Dockerfiles + compose files (dev / prod)
+docker/            # Dockerfiles + compose files (dev / prod), db_backup/ sidecar, nginx/ site example
 ```
 
 ### Example Endpoints
@@ -152,12 +156,18 @@ docker/            # Dockerfiles + compose files (dev / prod)
 | GET    | `/accounts/line/login/callback/`         | —      | LINE OAuth callback; redirects to the frontend with a one-time exchange code |
 | POST   | `/auth/line/exchange`                    | —      | One-time exchange code → bearer token; rate-limited (10/m/IP) |
 | POST   | `/auth/logout`        | Bearer | Revokes all of the user's tokens        |
-| GET    | `/auth/me`            | Bearer | Current user profile                    |
+| GET    | `/auth/me`            | Bearer | Current user profile + `roles`          |
 | GET    | `/articles`           | Bearer | Own articles; `?page=&page_size=&status=&q=` |
+| GET    | `/articles/export`    | Bearer | `?format=xlsx\|pdf\|zip` file download, same filters (10/m/user) |
 | POST   | `/articles`           | Bearer | Create; rate-limited (30/m/user)        |
 | GET    | `/articles/{id}`      | Bearer | Owner-scoped (404 if not owner)         |
 | PATCH  | `/articles/{id}`      | Bearer | Partial update; publish fires a task    |
-| DELETE | `/articles/{id}`      | Bearer | 204 on success                          |
+| DELETE | `/articles/{id}`      | Bearer | 200 + empty envelope                    |
+| POST   | `/jobs/demo`          | Bearer | Start the demo long-running job         |
+| GET    | `/jobs` · `/jobs/{id}` | Bearer | Own jobs; poll status/progress         |
+| POST   | `/jobs/{id}/cancel`   | Bearer | Cancel (pending → now; running → next checkpoint) |
+| GET    | `/notifications/failed` | Bearer + `admin` role | Undelivered notifications     |
+| POST   | `/notifications/line/webhook` | LINE signature | LINE Messaging API webhook      |
 
 Auth uses an opaque bearer token: `Authorization: Bearer <token>`, issued via the LINE
 login exchange above (there is no username/password login).

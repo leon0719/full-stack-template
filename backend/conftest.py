@@ -50,3 +50,20 @@ def other_auth_headers(other_user):
     from apps.accounts.services import AuthService
 
     return {"Authorization": f"Bearer {AuthService.issue_token(other_user)}"}
+
+
+@pytest.fixture
+def staff_admin(db):
+    """A regular (non-superuser) account that holds the ``admin`` role via the admin group."""
+    from django.contrib.auth.models import Group, User
+
+    admin = User.objects.create_user(username="ada", email="ada@example.com", password=PASSWORD)
+    admin.groups.add(Group.objects.get(name="admin"))
+    return admin
+
+
+@pytest.fixture
+def admin_auth_headers(staff_admin):
+    from apps.accounts.services import AuthService
+
+    return {"Authorization": f"Bearer {AuthService.issue_token(staff_admin)}"}

@@ -13,7 +13,8 @@
 ```
 
 compose 內的服務：`migrate`（一次性 job，跑完其他服務才啟動，避免併發
-migrate）、`api`、`celery-worker`、`celery-beat`、`caddy`。
+migrate）、`api`、`celery-worker`、`celery-beat`、`backup`（DB 備份 sidecar，見
+「備份與還原」）、`caddy`（改用主機 nginx 時刪掉，見 [nginx.md](nginx.md)）。
 靜態檔由 whitenoise 直接服務（build 時已 `collectstatic`），不需要 nginx。
 
 ## 前置需求
@@ -74,7 +75,12 @@ chmod 600 .env.prod        # 內含機密
 | `BEAT_HEARTBEAT_URL` | 空（停用） | celery-beat 心跳的 ping URL。beat 掛掉是最安靜的故障，沒有這個就只能等人發現排程沒跑（見 [alerting.md](alerting.md)） |
 | `CELERY_QUEUE_DEPTH_ALERT_THRESHOLD` | `1000` | 佇列積壓告警門檻。積壓時沒有任何任務會失敗，不主動量測不會知道。依實際流量調整 |
 | `ARTICLE_PUBLISHED_WEBHOOK_URL` | 空（停用） | 文章發布 webhook 示範整合 |
-| `AUTH_TOKEN_TTL_DAYS` 等 tuning | 見 `.env.prod.example` | token 效期、throttle rates、分頁大小，皆有預設 |
+| `AUTH_TOKEN_TTL_DAYS` 等 tuning | 見 `.env.prod.example` | token 效期、throttle rates、AuditLog 保留天數（`AUDIT_LOG_RETENTION_DAYS`）、分頁大小、匯出上限（`EXPORT_MAX_ROWS`）、通知重試/保留（`NOTIFICATION_*`）、job 保留（`JOB_RETENTION_DAYS`），皆有預設 |
+| `EMAIL_HOST` 等 `EMAIL_*` / `DEFAULT_FROM_EMAIL` | 空（不寄信，只寫 log） | 通知 outbox 的 SMTP。設了 `EMAIL_HOST` 就必須把 `DEFAULT_FROM_EMAIL` 換成自己網域（仍是 `@example.com` 會拒絕開機），並設好 SPF/DKIM，否則信會被收件端默默丟掉 |
+| `LINE_MESSAGING_CHANNEL_ACCESS_TOKEN` / `LINE_MESSAGING_CHANNEL_SECRET` | 空 | LINE **Messaging API** channel（不是 LINE Login 那個）：push（空 = 只寫 log）與 inbound webhook 驗簽（空 = webhook 回 503）。Messaging API channel 的 webhook URL：`https://<DOMAIN>/notifications/line/webhook`。要推播給 LINE 登入的使用者，兩個 channel 必須在同一個 provider 下（見 [integration-standards.md](integration-standards.md#通知email--line與-outbox)） |
+| `BACKUP_S3_URI` 等 `BACKUP_*` | 空（停用備份） | DB 備份 sidecar，見下方「備份與還原」。非 `Settings` 欄位，compose 變數替換讀取 |
+| `UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT` / `CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT` | `30` / `30` | 收到 SIGTERM 後等進行中請求／任務的秒數，見下方「優雅關機」 |
+| `UVICORN_TIMEOUT_KEEP_ALIVE` | `130` | uvicorn 閒置 keep-alive 秒數，必須大於反代對 upstream 的 keepalive（Caddy 2 分鐘），否則偶發 502 |
 
 不用設的：`DEBUG`（settings module 固定，環境無法翻轉）、`GIT_COMMIT_SHA`
 （`make prod-build` 自動以 build arg 注入）、`UVICORN_HOST`（compose 已處理，
@@ -101,7 +107,10 @@ vim .env.prod
 
 # 4. 建置並啟動
 make prod-build
-make prod-up      # migrate job 先跑完，api/worker/beat 才會啟動
+make prod-up      # 先跑一次備份（BACKUP_S3_URI 未設時只印警告），migrate job 跑完 api/worker/beat 才會啟動
+
+# 5. 匯入台灣辦公日曆（apps/holidays 的 is_working_day() 用；每年人事行政總處公告後再跑一次）
+docker compose -f docker/docker-compose.prod.yml exec api python manage.py import_holidays 2027
 ```
 
 ### 驗證
@@ -131,19 +140,77 @@ allowlist 保護 `/admin/`——它沒有 rate limit。）
 
 ```bash
 git pull
+make prod-backup  # migration 沒有回頭路：先備份，失敗就停在這裡
 make prod-build
-make prod-up      # 重建的 migrate job 先套新 migration，服務再滾動重啟
+make prod-migrate # 用新映像跑 migration，舊容器照常服務（migration 要 expand/contract 相容舊程式）
+make prod-up SKIP_BACKUP=1
 ```
 
-回滾：`git checkout <前一個穩定 commit>` 後重跑上面兩步。注意 migration
-不會自動倒退——含 schema 變更的回滾需先評估該 migration 是否可逆。
+設定好 CD（下一節）之後，push 到 main 就會自動跑這一串。
+
+回滾：`git checkout <前一個穩定 commit>` 後重跑 `make prod-build && make prod-up`。注意
+migration 不會自動倒退——含 schema 變更的回滾需先評估該 migration 是否可逆，不可逆就從部署前的
+備份還原（見「備份與還原」）。
+
+## 自動部署（CD）
+
+repo 根目錄 `.github/workflows/backend-ci.yml` 的 `deploy` job：**CI 所有 job 都通過、事件是 push 到 `main`、而且 repo
+variable `DEPLOY_ENABLED` 是 `true`** 才會跑——模板預設不設這個 variable，所以 fork 出去的專案
+不會意外部署到任何地方。流程：
+
+1. SSH 進主機，`git merge --ff-only <這次 CI 驗過的 SHA>`（只快轉到驗過的 commit；主機上有人手改
+   檔案或分支分岔時直接失敗，不會 reset 掉）
+2. `make prod-backup` → `make prod-build` → `make prod-migrate` → `make prod-up SKIP_BACKUP=1`
+3. 每 5 秒打一次 `http://127.0.0.1:8000/health/ready`，最多 `DEPLOY_HEALTH_RETRIES` 次（預設 30，
+   約 2.5 分鐘）；一直不是 200 就印 `docker compose ps` 與 api/worker/beat/migrate 的最後 100 行
+   log，job 失敗（`notify` job 會發 Slack）
+
+同一時間只會有一個部署（`concurrency: deploy-production`），main 上的 CI 也不會因為新的 push
+被取消（避免停在 migration 中間）。workflow 有 `paths: backend/**` 過濾：只改前端的 push 不會觸發後端部署，
+前端照頂層 `docs/deployment.md` 用 `make deploy-frontend`（人工）部署。
+
+### 設定
+
+**主機（一次性）**
+
+- 建一個部署專用帳號（例如 `deploy`），加入 `docker` group，能在 `DEPLOY_PATH` 執行 `git` 與 `make`；
+  **整個 monorepo** 以 deploy key（唯讀）clone 到 `DEPLOY_PATH`（job 會 `cd backend` 再跑 `make prod-*`），
+  `backend/.env.prod` 已就位。
+- 產生一組 CI 專用 SSH key（`ssh-keygen -t ed25519 -f deploy_ci -N ""`），公鑰加進該帳號的
+  `~/.ssh/authorized_keys`（可加 `from="..."` 限制來源）。
+
+**GitHub（Settings → Secrets and variables → Actions；secrets 建議放在 `production` environment）**
+
+| 種類 | 名稱 | 值 |
+| --- | --- | --- |
+| variable | `DEPLOY_ENABLED` | `true`（不設 = 不部署） |
+| variable | `DEPLOY_PATH` | 主機上 monorepo 的根目錄（不是 `backend/`），例如 `/home/deploy/app` |
+| variable | `DEPLOY_PORT` / `DEPLOY_HEALTH_RETRIES` | 選填，預設 `22` / `30` |
+| secret | `DEPLOY_HOST` / `DEPLOY_USER` | 主機位址 / 部署帳號 |
+| secret | `DEPLOY_SSH_KEY` | 上面產生的私鑰全文 |
+| secret | `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan -p <port> <host>` 的輸出（**在可信任的網路上**取得後核對指紋）。刻意不用 `StrictHostKeyChecking=no`：否則 DNS 被劫持時部署指令會送到冒牌主機 |
+
+`production` environment 可再加 required reviewers，讓每次部署都要有人按核准。
+
+> nginx 站台設定（`docker/nginx/`）需要 sudo，**不在 CD 範圍**；改了要手動到主機套用（見 [nginx.md](nginx.md)）。
+
+## 優雅關機
+
+| 元件 | 收到 SIGTERM 後 | 設定 |
+| --- | --- | --- |
+| api（uvicorn） | 不再接新連線，等進行中的請求最多 `UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT`（30s） | `uvicorn_run.py`；compose `stop_grace_period: 35s` 必須比它長。Dockerfile 用 exec form `CMD`，uvicorn 是 PID 1、直接收到訊號（shell form 或沒有 `exec` 的 entrypoint 腳本會讓 sh 吃掉 SIGTERM，最後被 SIGKILL） |
+| celery-worker | `REMAP_SIGTERM=SIGQUIT` 讓 SIGTERM 走 cold shutdown 的 soft 階段：執行中的任務有 `CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT`（30s）可以完成，之後沒做完的**立刻退回佇列**（acks_late） | `config/settings/base.py`；compose `stop_grace_period: 60s` 必須比它長。代價：只要有任務在跑，關機就固定等滿這個秒數（Celery 的實作是 sleep）。不設的話（舊行為）任務會被 SIGKILL，Redis 要等 `visibility_timeout`（1h）才重送 |
+| celery-beat | 立即結束 | 排程存在 DB，重啟後接續 |
+| backup | 立即結束（備份做到一半的暫存檔會被丟棄，S3 上不會有不完整的檔案） | |
+
 
 ## 維運備忘
 
 - **Log**：JSON 格式輸出到 stderr，json-file driver 已設輪替（10MB×3）。
   需要留存就接 log collector。
-- **備份**：DB/Redis 是外部服務，備份策略在那邊做（app 主機無狀態，
-  重建即可）。
+- **備份**：第一層是託管 DB 的**自動備份／PITR**（上線前確認已開）；第二層是 `backup`
+  sidecar 每天一份 `pg_dump` 到**另一個帳號/region 的** S3（防託管服務本身出事、誤刪整個
+  instance）。兩者都要**實際演練還原一次**——沒還原過的備份不算備份。步驟見下方「備份與還原」。
 - **告警**：完整設定與上線檢查清單見 **[alerting.md](alerting.md)**。
   重點是它分兩類問題：Sentry 抓「程式壞了」，外部監控抓「服務不見了」——
   後者（beat 死掉、worker 沒起來、佇列積壓）不會產生任何 Sentry 事件，
@@ -152,8 +219,60 @@ make prod-up      # 重建的 migrate job 先套新 migration，服務再滾動�
 - **依賴更新**：dependabot 每週開 PR（uv / GitHub Actions / Docker 三類）；
   CI 會跑 pip-audit 與 Trivy 掃描。
 
+## 備份與還原
+
+### 備份怎麼跑
+
+- **常駐**：compose 的 `backup` service（`docker/db_backup/`）啟動時先備份一次，之後每
+  `BACKUP_INTERVAL_SECONDS`（預設 24h）一次：`pg_dump --format=custom --no-owner --no-acl`
+  → 上傳 `BACKUP_S3_URI/db_<UTC 時間>.dump`。先寫暫存檔、成功才上傳，中途失敗不會在 S3 留下殘檔。
+- **單次**：`make prod-backup`（`make prod-up` 與 CD 在動到任何東西之前都會先跑）；失敗會中止後續步驟。
+- **權限**：優先用主機的 instance role（EC2 instance profile），容器裡不存任何 key；非 AWS 主機才在
+  `.env.prod` 填 `BACKUP_AWS_ACCESS_KEY_ID/SECRET`（region 用 `BACKUP_AWS_REGION`，預設 `ap-northeast-1`）。IAM policy 只給 `s3:PutObject` 到該 prefix——
+  被入侵的主機刪不掉舊備份。
+- **保留期**：交給 bucket 的 lifecycle rule（例如 `db-backups/` 365 天後刪除），腳本不刪檔。
+  bucket 開 Block Public Access、預設加密（SSE-S3/KMS），可再開 Object Lock 防竄改。
+- **告警**：備份失敗只會在容器 log 留一行 `FAILED`，不會有任何例外——請設 `BACKUP_HEARTBEAT_URL`
+  （見 [alerting.md](alerting.md) 第 6 節）。
+- `pg_dump` 版本是 18（`docker/db_backup/Dockerfile`），必須 >= 資料庫伺服器版本；DB 升到更新的
+  大版本時一起改 base image。
+
+### 還原流程
+
+> 還原會**覆蓋**目標資料庫。正式環境還原前先停寫入（api/worker/beat），並再備份一次現況。
+
+```bash
+# 1. 取得要還原的備份（在有 S3 讀取權限的機器上；備份 sidecar 的 key 刻意沒有讀權限）
+aws s3 ls s3://<bucket>/db-backups/ | tail
+aws s3 cp s3://<bucket>/db-backups/db_20261113_030000.dump ./restore.dump
+
+# 2. 先檢查內容（列出物件，不動資料庫）
+pg_restore --list restore.dump | head
+
+# 3. 停掉會寫 DB 的服務（保留 backup 以外的都停）
+docker compose -f docker/docker-compose.prod.yml stop api celery-worker celery-beat
+
+# 4. 還原到目標 DB（--clean --if-exists：先刪除同名物件再重建；--no-owner：物件歸連線的使用者）
+#    pg_restore 版本要 >= 備份時的 pg_dump（18）；直接借 backup image 的 client 最省事
+#    （image 名稱用 `docker compose -f docker/docker-compose.prod.yml images backup` 查）：
+docker run --rm -i -v "$PWD/restore.dump:/tmp/restore.dump:ro" --entrypoint pg_restore \
+  <backup image> --clean --if-exists --no-owner --no-acl --single-transaction \
+  --dbname="postgresql://user:pass@host:5432/dbname?sslmode=require" /tmp/restore.dump
+
+# 5. 若備份比目前程式碼舊：補跑 migration，再啟動服務並確認健康
+make prod-migrate
+docker compose -f docker/docker-compose.prod.yml start api celery-worker celery-beat
+curl -fsS http://127.0.0.1:8000/health/ready
+```
+
+- **演練建議**：每季把最新備份還原到一個**臨時的** DB（不是正式環境），跑一次
+  `python manage.py check` + 抽查幾張表筆數，確認備份真的能用。
+- `--single-transaction`：任何一步失敗整個還原回滾，不會留下半套資料。
+- 只想救回某幾張表：`pg_restore --list` 產生清單、編輯後用 `--use-list` 只還原需要的物件，
+  還原到臨時 DB 再把資料搬回去，比直接覆蓋正式 DB 安全。
+
 ## 不用內建 Caddy 的話
 
-自架 nginx（或雲端 LB）反代 `127.0.0.1:8000`，並刪除 `caddy` service——
-步驟與 `FORWARDED_ALLOW_IPS` / `NINJA_NUM_PROXIES` 的對應調整見
-[caddy.md「不使用內建 Caddy 時」](caddy.md#不使用內建-caddy-時)。
+改用主機 nginx 的取捨、站台設定範例（`docker/nginx/api.conf`）與
+`FORWARDED_ALLOW_IPS` / `NINJA_NUM_PROXIES` 的對應調整見 [nginx.md](nginx.md)；
+雲端 LB 的情況見 [caddy.md「不使用內建 Caddy 時」](caddy.md#不使用內建-caddy-時)。

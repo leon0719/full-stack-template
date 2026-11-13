@@ -1,10 +1,11 @@
 from django.contrib import admin
 
 from apps.articles.models import Article
+from apps.audit.admin import AuditedAdminMixin
 
 
 @admin.register(Article)
-class ArticleAdmin(admin.ModelAdmin):
+class ArticleAdmin(AuditedAdminMixin, admin.ModelAdmin):
     list_display = ("id", "title", "owner", "status", "created_at")
     list_filter = ("status", "created_at")
     search_fields = ("title", "content", "owner__username")

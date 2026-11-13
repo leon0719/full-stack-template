@@ -15,10 +15,11 @@ manageable in `/admin/`. Canonical in-repo examples: `apps/articles/admin.py` (F
 from django.contrib import admin
 
 from apps.<app>.models import <Model>
+from apps.audit.admin import AuditedAdminMixin
 
 
 @admin.register(<Model>)
-class <Model>Admin(admin.ModelAdmin):
+class <Model>Admin(AuditedAdminMixin, admin.ModelAdmin):   # mixin first
     list_display = ("id", "<human_field>", "<fk>", "<status>", "created_at")
     list_filter = ("<status>", "created_at")
     search_fields = ("<text_field>", "<fk>__<field>")
@@ -31,6 +32,10 @@ class <Model>Admin(admin.ModelAdmin):
 ## Rules (project conventions)
 
 - **Register every new model.** Adding a table without an admin entry is incomplete.
+- **Audit:** every admin that can add/change/delete inherits `AuditedAdminMixin` (left-most base) so admin
+  changes land in `AuditLog` (`admin_add` / `admin_change` / `admin_delete`, field diff, IP). Overriding
+  `save_model` / `save_related` / `delete_model` / `delete_queryset`? Call `super()`, or that path stops being
+  audited. Fully read-only admins (all `has_*_permission` → False, like `AuditLogAdmin`) don't need it.
 - **N+1 rule (most important):** any FK/related object that appears in `list_display`
   MUST be covered by `list_select_related` (or an overridden `get_queryset().select_related(...)`).
   This is the same rule enforced for API list endpoints.

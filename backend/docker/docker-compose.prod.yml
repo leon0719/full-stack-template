@@ -42,8 +42,10 @@ services:
     environment:
       - UVICORN_HOST=0.0.0.0
     restart: unless-stopped
-    # uvicorn's graceful-shutdown window is 30s (uvicorn_run.py); Docker's
-    # default stop timeout is only 10s and would SIGKILL mid-drain.
+    # uvicorn's graceful-shutdown window is UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT
+    # (default 30s, uvicorn_run.py); Docker's default stop timeout is only 10s and
+    # would SIGKILL mid-drain. Keep this a few seconds above that value. uvicorn is
+    # PID 1 (exec-form CMD in docker/Dockerfile), so it receives SIGTERM directly.
     stop_grace_period: 35s
     logging: *default-logging
     healthcheck:
@@ -68,8 +70,14 @@ services:
   celery-worker:
     <<: *app-base
     restart: unless-stopped
-    # Give in-flight tasks a chance to finish on warm shutdown. A task killed
-    # past this window is safely re-delivered (acks_late + idempotent tasks).
+    # Shutdown: REMAP_SIGTERM=SIGQUIT turns Docker's SIGTERM into Celery's cold
+    # shutdown with a *soft* phase first: running tasks get
+    # CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT (default 30s, config/settings/base.py) to
+    # finish, then unfinished ones are cancelled and requeued immediately (acks_late)
+    # instead of being SIGKILLed and redelivered only after visibility_timeout (~1h).
+    # stop_grace_period must stay above the soft timeout + a few seconds of cleanup.
+    environment:
+      - REMAP_SIGTERM=SIGQUIT
     stop_grace_period: 60s
     logging: *default-logging
     # Concurrency is env-tunable (mirrors the API's WEB_CONCURRENCY). Compose
@@ -131,12 +139,40 @@ services:
     #       cpus: "1.0"
     #       memory: 512m
 
+  # 資料庫備份 sidecar（docker/db_backup/backup.sh）：啟動時先備份一次，之後每
+  # BACKUP_INTERVAL_SECONDS（預設 24h）pg_dump 一次上傳 S3。`make prod-backup` 用同一個
+  # image 跑一次就結束（prod-up / CD 部署前都會先跑）。還原流程見 docs/deployment.md「備份與還原」。
+  # - 不掛 env_file：只拿備份需要的變數，app 的其他機密不進這個容器。
+  # - S3 權限優先用主機的 instance role（EC2 / ECS），BACKUP_AWS_* 留空即可；非 AWS 主機才填
+  #   一組「只能 PutObject 到備份 prefix」的 key。保留期交給 bucket lifecycle rule，這裡不刪檔。
+  # - BACKUP_S3_URI 留空 = 停用（只印警告）：託管 DB 已有 PITR 時這是第二層，不強制。
+  backup:
+    build:
+      context: ./db_backup
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-}
+      BACKUP_S3_URI: ${BACKUP_S3_URI:-}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}
+      AWS_DEFAULT_REGION: ${BACKUP_AWS_REGION:-ap-northeast-1}
+      AWS_ACCESS_KEY_ID: ${BACKUP_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_AWS_SECRET_ACCESS_KEY:-}
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    logging: *default-logging
+    networks:
+      - app
+
   # Caddy 反向代理：對外流量走 訪客 ──HTTPS──▶ Cloudflare 橘雲 ──HTTPS──▶
   # caddy（主機開放 80/443）──▶ http://api:8000（compose 內部網路）。
   # 後半段 TLS 用 Caddy 自簽憑證（Caddyfile 的 tls internal），搭配 Cloudflare
   # SSL mode「Full」。真實 client IP 靠 Caddyfile 的 trusted_proxies（信任
   # Cloudflare IP 段）保留並帶進 api。設定步驟見 docs/caddy.md。
-  # 不使用內建 Caddy（改自架 nginx 或雲端 LB）時，刪除本 service 即可。
+  # 不使用內建 Caddy（改主機 nginx 或雲端 LB）時，刪除本 service 即可；nginx 站台設定
+  # 範例在 docker/nginx/，取捨與步驟見 docs/nginx.md。
   caddy:
     image: caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
     restart: unless-stopped

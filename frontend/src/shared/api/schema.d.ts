@@ -127,7 +127,8 @@ export interface paths {
         };
         /**
          * Me
-         * @description Return the authenticated user's profile, including LINE display name / avatar if present.
+         * @description Return the authenticated user's profile: LINE display name / avatar if present, and ``roles``
+         *     (see ``apps/accounts/roles.py``).
          */
         get: operations["apps_accounts_views_me"];
         put?: never;
@@ -159,6 +160,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/articles/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Articles
+         * @description Download the caller's articles (same ?status= / ?q= as the list) as
+         *     ?format=xlsx | pdf | zip (zip = both). Capped at EXPORT_MAX_ROWS rows.
+         */
+        get: operations["apps_articles_views_export_articles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/articles/{article_id}": {
         parameters: {
             query?: never;
@@ -176,6 +198,129 @@ export interface paths {
         head?: never;
         /** Update Article */
         patch: operations["apps_articles_views_update_article"];
+        trace?: never;
+    };
+    "/notifications/line/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Line Webhook
+         * @description LINE Messaging API webhook. Authenticated by ``X-Line-Signature`` (HMAC-SHA256 of the raw body
+         *     with LINE_MESSAGING_CHANNEL_SECRET), not by a bearer token. Set the LINE console webhook URL to
+         *     ``https://<domain>/notifications/line/webhook``.
+         */
+        post: operations["apps_notifications_views_line_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Failed Notifications
+         * @description Admin only: notifications not delivered yet (retrying or abandoned), newest first.
+         */
+        get: operations["apps_notifications_views_list_failed_notifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Jobs
+         * @description The caller's own jobs, newest first.
+         */
+        get: operations["apps_jobs_views_list_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Job
+         * @description Status / progress of one of the caller's jobs (another user's job → 404). Poll this.
+         */
+        get: operations["apps_jobs_views_get_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Job
+         * @description Pending → cancelled immediately; running → stops at the task's next checkpoint
+         *     (``cancel_requested`` is true until then). Finished jobs → 409 ``job_not_cancellable``.
+         */
+        post: operations["apps_jobs_views_cancel_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/demo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Demo Job
+         * @description Start the demo long-running job (replace with a real task — see apps/jobs/tasks.py).
+         */
+        post: operations["apps_jobs_views_start_demo_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }
@@ -257,7 +402,17 @@ export interface components {
             display_name?: string | null;
             /** Picture Url */
             picture_url?: string | null;
+            /**
+             * Roles
+             * @description 角色清單(前端 usePermission / RequireRole 用);每個登入使用者都有 user。
+             */
+            roles: components["schemas"]["Role"][];
         };
+        /**
+         * Role
+         * @enum {string}
+         */
+        Role: "user" | "admin";
         /** ArticleFilter */
         ArticleFilter: {
             status?: components["schemas"]["Status"] | null;
@@ -338,6 +493,133 @@ export interface components {
             /** Content */
             content?: string | null;
             status?: components["schemas"]["Status"] | null;
+        };
+        /** BaseResponse[Page[NotificationResponse]] */
+        BaseResponse_Page_NotificationResponse__: {
+            data: components["schemas"]["Page_NotificationResponse_"] | null;
+            error: components["schemas"]["ErrorResponse"] | null;
+        };
+        /** NotificationResponse */
+        NotificationResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Id */
+            id: number;
+            /** Channel */
+            channel: string;
+            /** Recipient */
+            recipient: string;
+            /** Source */
+            source: string;
+            /** Retry Count */
+            retry_count: number;
+            /** Last Error */
+            last_error: string;
+            /** Sent At */
+            sent_at: string | null;
+            /**
+             * Abandoned At
+             * @description 有值 = 重試次數用完已放棄(已觸發告警)。
+             */
+            abandoned_at: string | null;
+        };
+        /** Page[NotificationResponse] */
+        Page_NotificationResponse_: {
+            /** Items */
+            items: components["schemas"]["NotificationResponse"][];
+            /** Count */
+            count: number;
+        };
+        /** BaseResponse[Page[JobResponse]] */
+        BaseResponse_Page_JobResponse__: {
+            data: components["schemas"]["Page_JobResponse_"] | null;
+            error: components["schemas"]["ErrorResponse"] | null;
+        };
+        /**
+         * JobResponse
+         * @description 前五個欄位是與前端 ``shared/api/use-job-polling.ts`` 的 ``Job`` 約定的形狀,不要改名;其餘是附加資訊。
+         */
+        JobResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Id */
+            id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
+            /**
+             * Progress
+             * @description 0-100;null = 尚未開始或無法估算。
+             */
+            progress: number | null;
+            /**
+             * Result
+             * @description 成功時 task 的回傳值,其餘狀態為 null。
+             */
+            result: unknown | null;
+            /**
+             * Error
+             * @description 失敗原因的穩定錯誤碼(可當 i18n key);沒有失敗時為 null。
+             */
+            error: string | null;
+            /** Kind */
+            kind: string;
+            /** Message */
+            message: string;
+            /**
+             * Cancel Requested
+             * @description 已要求取消、task 尚未在下一個檢查點停下時為 true。
+             */
+            cancel_requested: boolean;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+        };
+        /** Page[JobResponse] */
+        Page_JobResponse_: {
+            /** Items */
+            items: components["schemas"]["JobResponse"][];
+            /** Count */
+            count: number;
+        };
+        /** BaseResponse[JobResponse] */
+        BaseResponse_JobResponse_: {
+            data: components["schemas"]["JobResponse"] | null;
+            error: components["schemas"]["ErrorResponse"] | null;
+        };
+        /** DemoJobRequest */
+        DemoJobRequest: {
+            /**
+             * Steps
+             * @description Number of progress steps.
+             * @default 10
+             */
+            steps: number;
+            /**
+             * Delay Seconds
+             * @description Simulated work per step.
+             * @default 1
+             */
+            delay_seconds: number;
         };
     };
     responses: never;
@@ -530,6 +812,30 @@ export interface operations {
             };
         };
     };
+    apps_articles_views_export_articles: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["Status"] | null;
+                q?: string | null;
+                format?: "xlsx" | "pdf" | "zip";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description xlsx / pdf / zip file (Content-Disposition carries the UTF-8 filename). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+        };
+    };
     apps_articles_views_get_article: {
         parameters: {
             query?: never;
@@ -596,6 +902,140 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BaseResponse_ArticleResponse_"];
+                };
+            };
+        };
+    };
+    apps_notifications_views_line_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseResponse_NoneType_"];
+                };
+            };
+        };
+    };
+    apps_notifications_views_list_failed_notifications: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseResponse_Page_NotificationResponse__"];
+                };
+            };
+        };
+    };
+    apps_jobs_views_list_jobs: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseResponse_Page_JobResponse__"];
+                };
+            };
+        };
+    };
+    apps_jobs_views_get_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseResponse_JobResponse_"];
+                };
+            };
+        };
+    };
+    apps_jobs_views_cancel_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseResponse_JobResponse_"];
+                };
+            };
+        };
+    };
+    apps_jobs_views_start_demo_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DemoJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseResponse_JobResponse_"];
                 };
             };
         };

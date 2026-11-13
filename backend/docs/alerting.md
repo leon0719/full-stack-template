@@ -139,6 +139,34 @@ error——於是它會走上面第 1 節設好的同一條 Slack 通道。
 
 ---
 
+## 6. 資料庫備份心跳
+
+`backup` sidecar（[deployment.md「備份與還原」](deployment.md#備份與還原)）失敗時只在容器 log 留一行
+`FAILED`——沒有例外、沒有 Sentry 事件，又是「沉默和健康長得一樣」的那一類。
+
+1. healthchecks.io 另建一個 Check：Period **1 天**（對應 `BACKUP_INTERVAL_SECONDS`）、Grace **3 小時**。
+2. ping URL 填進 `.env.prod` 的 `BACKUP_HEARTBEAT_URL`；sidecar 每次**上傳成功後**才會 ping。
+3. `make prod-up` 後確認監控端收到第一次 ping（sidecar 啟動時就會先備份一次）。
+
+---
+
+## 7. 通知 outbox 放棄
+
+`apps/notifications` 的通知（email / LINE）發送失敗會記在 outbox 並由 beat 每 10 分鐘補送；
+重試 `NOTIFICATION_MAX_RETRIES`（預設 5）次仍失敗就標記放棄，並透過 `config.alerting.alert()`
+送一則 **Sentry error**（`Notification abandoned after max retries`，extra 帶 notification_id /
+channel / last_error）——走第 1 節同一條 Slack 通道，不需要額外設定。
+
+常見原因：LINE 當月配額用完（`HTTP 429`）、userId 錯或對方沒加官方帳號好友（`HTTP 400`）、
+LINE Login 與 Messaging API channel 不在同一個 provider（userId 對不上）、SMTP 帳密錯。
+修好原因後在 Django admin 的 Notifications 勾選 →「重新發送」，或用
+`GET /notifications/failed`（admin 角色）查看清單。
+
+業務程式要回報「資料層面已經放棄、需要人處理」時也用 `alert()`，不要丟例外（在 Celery task
+裡丟例外會被記成任務失敗、甚至觸發重試）。
+
+---
+
 ## 檢查清單
 
 上線前逐項確認——每一項都是「漏掉也不會有任何錯誤訊息」的類型：
@@ -151,3 +179,4 @@ error——於是它會走上面第 1 節設好的同一條 Slack 通道。
 - [ ] `CELERY_QUEUE_DEPTH_ALERT_THRESHOLD` 已依實際流量調整
 - [ ] `SLACK_WEBHOOK_URL` secret 已設（CI 失敗通知）
 - [ ] 以上通知都進到**同一個** channel，且該 channel 沒有被值班的人靜音
+- [ ] `BACKUP_S3_URI` 已設（或確定只靠託管 DB 的 PITR），`BACKUP_HEARTBEAT_URL` 已設且監控端看到第一次 ping

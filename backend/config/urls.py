@@ -6,6 +6,8 @@ from ninja import NinjaAPI
 from apps.accounts.views import auth_router
 from apps.articles.views import articles_router
 from apps.health.views import health_router
+from apps.jobs.views import jobs_router
+from apps.notifications.views import notifications_router
 from config.exceptions import register_exception_handlers
 from config.ninja_config import ORJSONParser, ORJSONRenderer
 
@@ -22,6 +24,8 @@ register_exception_handlers(api)
 api.add_router("", health_router, tags=["health"])
 api.add_router("/auth", auth_router)
 api.add_router("/articles", articles_router)
+api.add_router("/notifications", notifications_router)
+api.add_router("/jobs", jobs_router)
 
 
 # Static files (admin CSS/JS) are served by whitenoise middleware in every env.

@@ -37,10 +37,17 @@ first**, then apply the answer to every file at once — don't invent a rule per
      `filters.filter(cls.owned_qs(user))`, or override `create`/`update` for field transforms.
    - Never touch HTTP here; raise `AppError(status, ErrorCode.X, msg)` for client-branchable failures (add the
      code to `config/errors.py`), plain `HttpError` otherwise.
+   - **Audit every write**: wrap it in `transaction.atomic()` and call
+     `record_audit(AuditLog.Action.X, actor=user, target=obj, before=snapshot(obj_before))` inside the block
+     (`apps.audit.services`; see `ArticleService.create/update_owned/delete_owned`).
+   - Notifying someone → `NotificationService.enqueue_email/enqueue_line` (outbox; `enqueue_line_to_user(user, ...)` for a
+     LINE-login user), not `send_mail`/httpx.
+   - Work too slow for a request → `JobService.start(user, task, ...)` + a `@tracked_job` task (`apps/jobs`).
    - **Gate:** write service tests for every resource-specific method and each `AppError`/`HttpError`
      branch, then `make test-local TEST=apps/<app>/tests.py` must pass before step 4.
 
-4. **Views** (`views.py`) — thin endpoints on the app's `Router` (keep `auth=BearerAuth()`):
+4. **Views** (`views.py`) — thin endpoints on the app's `Router` (keep `auth=BearerAuth()`; role-gated endpoints
+   use `auth=require_role(Role.ADMIN)` instead — 401 without token, 403 `permission_denied` without the role):
    - Every endpoint: `response=BaseResponse[XxxResponse]`, `return BaseResponse(data=...)` (`apps.core.schema`)
    - `GET /` → `response=BaseResponse[Page[XxxResponse]]`, param `page: StandardPagination.Input = Query(...)`,
      `return BaseResponse(data=StandardPagination().paginate_queryset(qs, page, request))` — no `@paginate`
@@ -49,6 +56,8 @@ first**, then apply the answer to every file at once — don't invent a rule per
    - `DELETE` → `response=BaseResponse[None]`, `return BaseResponse()` (200, not 204)
    - Fire Celery side effects with `transaction.on_commit(lambda: task.delay(obj.id), robust=True)`
      (primitive args; see `apps/articles/views.py`).
+   - File download → no `response=`; `return attachment_response(content, filename, content_type)`
+     (`apps.core.exports`; see `export_articles`). Cap the rows (`EXPORT_MAX_ROWS`) and use `ExportThrottle`.
 
 5. **Endpoint tests** (`tests.py`) — `@pytest.mark.integration` cases using the `auth_headers` /
    `other_auth_headers` fixtures from `conftest.py`. Always include an **owner-isolation**
@@ -65,6 +74,8 @@ Report every item with one of three states — never tick what you didn't actual
 - [ ] Service tests pass (before views were written)
 - [ ] Endpoint tests pass, incl. owner-isolation (404) and auth-required (401)
 - [ ] List endpoint paginated; writes throttled
+- [ ] Writes call `record_audit()` inside the same transaction (test asserts the `AuditLog` row)
+- [ ] Role-gated endpoints use `require_role` and have a 403 test
 - [ ] No ORM / business logic in `views.py`
 - [ ] `check` skill passes (ruff + mypy + pytest)
 

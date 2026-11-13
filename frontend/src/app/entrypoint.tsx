@@ -5,7 +5,7 @@ import { I18nextProvider } from "react-i18next";
 import { initAuth } from "@/shared/auth";
 import { i18n } from "@/shared/i18n";
 import { queryClient } from "@/shared/lib";
-import { ErrorBoundary } from "@/shared/ui";
+import { ConfirmDialogHost, ErrorBoundary, Toaster } from "@/shared/ui";
 import { router } from "./router";
 
 export function App() {
@@ -18,6 +18,9 @@ export function App() {
       <I18nextProvider i18n={i18n}>
         <QueryClientProvider client={queryClient}>
           <RouterProvider router={router} />
+          {/* confirmDialog() / toast() 的掛載點;整個 App 各一個 */}
+          <ConfirmDialogHost />
+          <Toaster />
         </QueryClientProvider>
       </I18nextProvider>
     </ErrorBoundary>

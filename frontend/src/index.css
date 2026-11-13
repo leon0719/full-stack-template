@@ -7,6 +7,10 @@
   --color-primary-foreground: #fafafa;
   --color-destructive: #ef4444;
   --color-destructive-foreground: #fafafa;
+  /* 狀態色:Badge / Toast 用;品牌化時一併調整 */
+  --color-success: #15803d;
+  --color-warning: #b45309;
+  --color-info: #1d4ed8;
 }
 
 body {

@@ -141,3 +141,27 @@ class TestScheduledTasks:
         settings.CELERY_QUEUE_DEPTH_ALERT_THRESHOLD = 10
         monkeypatch.setattr(tasks, "get_queue_depth", lambda: None)
         assert tasks.check_queue_depth() == "unknown"
+
+
+class TestAlert:
+    def test_alert_sends_sentry_error_with_context(self, monkeypatch):
+        import sentry_sdk
+
+        from config.alerting import alert
+
+        captured: list[tuple[str, str]] = []
+        monkeypatch.setattr(sentry_sdk, "capture_message", lambda msg, level: captured.append((msg, level)))
+        alert("Notification abandoned", notification_id=7)
+        assert captured == [("Notification abandoned", "error")]
+
+
+class TestProdEmailSender:
+    def test_smtp_with_example_sender_blocks_prod(self):
+        with pytest.raises(ValidationError, match="DEFAULT_FROM_EMAIL"):
+            Settings(**_prod_kwargs(EMAIL_HOST="smtp.example.net"))
+
+    def test_smtp_with_real_sender_is_fine(self):
+        Settings(**_prod_kwargs(EMAIL_HOST="smtp.example.net", DEFAULT_FROM_EMAIL="noreply@your-domain.com"))
+
+    def test_no_smtp_needs_no_sender(self):
+        Settings(**_prod_kwargs())

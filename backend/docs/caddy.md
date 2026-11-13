@@ -133,4 +133,4 @@ Allow policy（如 Include → Emails 填自己的信箱，登入走 one-time PI
    `caddy_config` volumes）。
 2. `.env.prod` 移除 `DOMAIN`，並依新拓撲重算 `NINJA_NUM_PROXIES`。
 3. 自架反代（nginx 等）指向 `127.0.0.1:8000`，並依 `.env.prod.example` 的說明
-   重設 `FORWARDED_ALLOW_IPS`。
+   重設 `FORWARDED_ALLOW_IPS`。主機 nginx 的站台設定範例與步驟見 [nginx.md](nginx.md)。

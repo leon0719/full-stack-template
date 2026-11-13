@@ -1,6 +1,11 @@
 {
   "common": {
     "appName": "App",
+    "loading": "載入中…",
+    "confirm": "確定",
+    "cancel": "取消",
+    "close": "關閉",
+    "back": "返回",
     "logout": "登出",
     "forbidden": "403 — 您沒有存取此頁面的權限",
     "error": {
@@ -11,6 +16,37 @@
     "notFound": {
       "title": "404 — 找不到頁面",
       "description": "您要找的頁面不存在，請確認網址是否正確。"
+    },
+    "empty": {
+      "title": "目前沒有資料"
+    },
+    "toast": {
+      "region": "通知",
+      "dismiss": "關閉通知"
+    },
+    "upload": {
+      "prompt": "拖曳檔案到這裡，或點擊選擇檔案",
+      "accept": "支援格式：{{accept}}",
+      "maxSize": "單檔上限 {{size}}",
+      "invalidType": "「{{name}}」格式不符，僅支援 {{accept}}",
+      "tooLarge": "「{{name}}」超過 {{size}} 上限",
+      "tooMany": "一次最多只能選 {{count}} 個檔案",
+      "single": "一次只能選一個檔案"
+    },
+    "spreadsheet": {
+      "missingColumns": "缺少必要欄位：{{columns}}",
+      "unsupportedFormat": "不支援的檔案格式，請上傳 CSV 或 XLSX",
+      "unreadable": "無法讀取檔案內容，請確認檔案沒有損毀"
+    },
+    "job": {
+      "status": {
+        "pending": "等待中",
+        "running": "處理中",
+        "succeeded": "已完成",
+        "failed": "失敗",
+        "cancelled": "已取消"
+      },
+      "cancel": "取消任務"
     }
   },
   "auth": {
@@ -44,7 +80,52 @@
         "namePlaceholder": "輸入至少 2 個字",
         "nameMin": "至少 2 個字",
         "submit": "送出",
-        "greeting": "Hello, {{name}}"
+        "greeting": "Hello, {{name}}",
+        "hint": "會顯示在下方的問候語中"
+      },
+      "kit": {
+        "title": "shared/ui 元件",
+        "badges": "Badge",
+        "openConfirm": "開啟確認框",
+        "openDanger": "刪除（危險動作）",
+        "confirmMessage": "確定要套用這個設定嗎？",
+        "dangerMessage": "確定要刪除這筆資料嗎？刪除後無法復原。",
+        "dangerLabel": "刪除",
+        "confirmed": "已確認",
+        "cancelled": "已取消",
+        "toastSuccess": "成功 Toast",
+        "toastError": "錯誤 Toast",
+        "toastInfo": "一般 Toast",
+        "saved": "已儲存",
+        "saveFailed": "儲存失敗，請稍後再試",
+        "info": "這是一則提示訊息",
+        "emptyDescription": "建立第一筆資料後會顯示在這裡。",
+        "create": "新增資料",
+        "errorDescription": "伺服器暫時沒有回應。",
+        "retried": "已重試 {{count}} 次"
+      },
+      "upload": {
+        "title": "上傳與檔案",
+        "imageLabel": "圖片壓縮（compressImage）",
+        "compressed": "{{name}}：{{before}} → {{after}}",
+        "sheetLabel": "試算表欄位檢查（validateColumns，必要欄位：{{columns}}）",
+        "columnsOk": "欄位齊全：{{columns}}",
+        "download": "下載範例 CSV（downloadBlob）"
+      },
+      "realtime": {
+        "title": "長任務與即時更新",
+        "startJob": "開始模擬任務",
+        "progress": "進度 {{percent}}%",
+        "streamToggleOn": "連線 SSE",
+        "streamToggleOff": "中斷 SSE",
+        "streamHint": "需要後端提供 SSE 端點 {{path}} 與 stream token 端點（本專案後端目前都沒有）；現在連線只會看到斷線後的退避重連。",
+        "streamStatus": {
+          "idle": "未連線",
+          "connecting": "連線中…",
+          "open": "已連線",
+          "reconnecting": "連線中斷，重新連線中…"
+        },
+        "updatedAt": "最後更新：{{time}}（{{relative}}）"
       }
     },
     "admin": {

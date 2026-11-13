@@ -50,6 +50,11 @@ Skip `tasks.py` / `external_services.py` if the app needs no background work or 
 - **Shared schema**: reuse `apps.core.schema.DetailResponse` for `{"detail": "..."}` bodies.
 - **Status codes**: return `Status(code, body)` from `ninja.responses` (not a `(code, body)` tuple).
 - **Logging**: loguru `logger`, format `[Layer] message - key: value`; 4xx → warning, 5xx → error.
+- **Roles**: admin-only endpoints use `auth=require_role(Role.ADMIN)` (`apps.accounts.authentication`), not ad-hoc
+  group/`is_staff` checks.
+- **Audit**: service writes call `record_audit()` (`apps.audit.services`) inside the write's `transaction.atomic()`;
+  `admin.py` classes inherit `AuditedAdminMixin`.
+- **Notifications / long work**: `NotificationService.enqueue_*` (outbox) and `JobService.start` + `@tracked_job`.
 - **Models**: explicit `on_delete` + `related_name`; add `Meta.indexes` for real query paths
   (e.g. `Index(fields=["owner", "-created_at"])`).
 

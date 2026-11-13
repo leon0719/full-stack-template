@@ -46,7 +46,11 @@ if __name__ == "__main__":
         log_config=UVICORN_LOG_CONFIG,
         proxy_headers=True,
         forwarded_allow_ips=forwarded_allow_ips,
-        # Let in-flight requests finish (up to 30s) on SIGTERM instead of being cut
-        # off — important for zero-downtime rolling deploys.
-        timeout_graceful_shutdown=30,
+        # Let in-flight requests finish on SIGTERM instead of being cut off (same as the CLI's
+        # --timeout-graceful-shutdown) — important for zero-downtime rolling deploys. Must stay
+        # BELOW compose's stop_grace_period (35s) or Docker SIGKILLs mid-drain.
+        timeout_graceful_shutdown=int(os.getenv("UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT", "30")),
+        # Must exceed the reverse proxy's upstream idle keepalive (Caddy 2m; nginx example in docker/nginx/),
+        # or uvicorn closes reused connections first (sporadic 502s). uvicorn's own default is only 5s.
+        timeout_keep_alive=int(os.getenv("UVICORN_TIMEOUT_KEEP_ALIVE", "130")),
     )

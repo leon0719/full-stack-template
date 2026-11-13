@@ -26,6 +26,14 @@ suggest also running the built-in `/code-review`.
       `Model.objects.get(pk=...)` without an ownership filter on user-facing reads/writes.
 - [ ] `get_object_or_404` / ownership fetch is OUTSIDE any broad `try/except` (so a 404
       isn't swallowed into a 500).
+- [ ] Role checks go through `require_role(...)` / `has_role()` — no ad-hoc `groups.filter(name=...)` / `is_staff`.
+
+## Audit & side effects
+
+- [ ] Business writes call `record_audit()` inside the same `transaction.atomic()` as the write.
+- [ ] New/changed `ModelAdmin` that can write inherits `AuditedAdminMixin`; overrides of its hooks call `super()`.
+- [ ] Emails / LINE messages go through `NotificationService.enqueue_*` (outbox), not `send_mail()` / httpx in a request.
+- [ ] Slow work is a job (`JobService.start` + `@tracked_job`), not a long request; tasks report progress (= cancel checkpoint).
 
 ## Database
 
@@ -48,6 +56,7 @@ suggest also running the built-in `/code-review`.
 ## API surface
 
 - [ ] Every `/api` endpoint declares `response=BaseResponse[...]` and returns `BaseResponse(data=...)`; delete → 200 + `BaseResponse()`.
+      Exception: file downloads return `attachment_response(...)` (RFC 5987 filename) with a row cap + `ExportThrottle`.
 - [ ] Client-branchable errors use `AppError` with an `ErrorCode` (→ `error.reason`); no hand-built error JSON.
 - [ ] Pagination on list endpoints (`paginate_queryset` inside `BaseResponse`, not `@paginate`); writes carry a sensible throttle.
 - [ ] Returns `Status(code, body)` (not deprecated `(code, body)` tuples).

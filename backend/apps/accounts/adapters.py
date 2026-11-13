@@ -22,6 +22,7 @@ from loguru import logger
 
 from apps.accounts.models import LineProfile
 from apps.accounts.services import AuthService
+from apps.audit.models import AuditLog
 
 
 class LineSocialAccountAdapter(DefaultSocialAccountAdapter):
@@ -68,6 +69,12 @@ class LineSocialAccountAdapter(DefaultSocialAccountAdapter):
             error=error,
             exception=exception,
         )
+        # 稽核只記 allauth 的錯誤類別(例如 "cancelled" / "unknown"),不記 exception 內容。
+        AuditLog.record(
+            AuditLog.Action.LINE_LOGIN_FAILED,
+            error=str(error or "unknown"),
+            provider=getattr(provider, "id", str(provider)),
+        )
         raise ImmediateHttpResponse(HttpResponseRedirect(f"{settings.FRONTEND_BASE_URL}/login?error=line_auth_failed"))
 
     @staticmethod
@@ -89,6 +96,8 @@ class LineAccountAdapter(DefaultAccountAdapter):
         # This hook only fires after allauth has completed a social login, so
         # request.user is always the authenticated Django User here — never
         # AnonymousUser. Narrow the type for mypy without changing behavior.
-        token = AuthService.issue_token(cast(User, request.user))
+        user = cast(User, request.user)
+        token = AuthService.issue_token(user)
+        AuditLog.record(AuditLog.Action.LINE_LOGIN_SUCCESS, user=user)
         code = AuthService.issue_line_exchange_code(token)
         return f"{settings.FRONTEND_BASE_URL}/login/callback?code={code}"

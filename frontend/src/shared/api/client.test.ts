@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "@/shared/auth";
-import { ApiError, apiGet, apiPatch, apiPost } from "./client";
+import { ApiError, apiDownload, apiGet, apiPatch, apiPost } from "./client";
 
 const ok = (body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -188,5 +188,84 @@ describe("api client", () => {
     await expect(apiGet("/secure")).rejects.toBeInstanceOf(ApiError);
     expect(useAuthStore.getState().token).toBeNull();
     expect(useAuthStore.getState().status).toBe("unauthenticated");
+  });
+
+  it("sends FormData as-is and lets the browser set the multipart Content-Type", async () => {
+    useAuthStore.setState({ token: "tok-123" });
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(ok({ data: { id: 1 }, error: null }));
+    const form = new FormData();
+    form.append("file", new File(["x"], "a.csv"));
+    expect(await apiPost("/uploads", form)).toEqual({ id: 1 });
+    const init = spy.mock.calls[0][1] as RequestInit;
+    expect(init.body).toBe(form);
+    const headers = new Headers(init.headers);
+    expect(headers.get("Content-Type")).toBeNull();
+    expect(headers.get("Authorization")).toBe("Bearer tok-123");
+  });
+
+  it("does not mark FormData passed via init.body as JSON", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ok({}));
+    const form = new FormData();
+    await apiPost("/uploads", undefined, { body: form });
+    const init = spy.mock.calls[0][1] as RequestInit;
+    expect(init.body).toBe(form);
+    expect(new Headers(init.headers).get("Content-Type")).toBeNull();
+  });
+});
+
+describe("apiDownload", () => {
+  beforeEach(() => {
+    useAuthStore.setState({ user: null, token: "tok-123", status: "authenticated" });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("returns the blob and the RFC 5987 filename with the token attached", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("a,b\n1,2", {
+        status: 200,
+        headers: {
+          "Content-Type": "text/csv",
+          "Content-Disposition":
+            "attachment; filename=\"export.csv\"; filename*=UTF-8''%E5%8C%AF%E5%87%BA.csv",
+        },
+      }),
+    );
+    const { blob, filename } = await apiDownload("/reports/export");
+    expect(filename).toBe("匯出.csv");
+    expect(await blob.text()).toBe("a,b\n1,2");
+    const init = spy.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("GET");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer tok-123");
+  });
+
+  it("returns a null filename when the header is missing and supports POST bodies", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("x", { status: 200 }));
+    const { filename } = await apiDownload("/reports/export", {
+      method: "POST",
+      body: { year: 2026 },
+    });
+    expect(filename).toBeNull();
+    const init = spy.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ year: 2026 }));
+  });
+
+  it("throws ApiError with the parsed envelope on failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: null,
+          error: { code: 403, message: "無權限", reason: "forbidden" },
+        }),
+        { status: 403 },
+      ),
+    );
+    await expect(apiDownload("/reports/export")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 403,
+      reason: "forbidden",
+    });
   });
 });

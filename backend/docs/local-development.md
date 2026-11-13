@@ -61,13 +61,16 @@ make install
 | `LINE_LOGIN_CHANNEL_ID` | （空 = 停用） | LINE Developers Console 的 channel id；本地測試流程見頂層 `docs/development.md` |
 | `LINE_LOGIN_CHANNEL_SECRET` | （空 = 停用） | LINE Developers Console 的 channel secret；本地測試流程見頂層 `docs/development.md` |
 | `FRONTEND_BASE_URL` | `http://localhost:5173` | LINE 登入完成後導回前端的網址 |
+| `LINE_MESSAGING_CHANNEL_ACCESS_TOKEN` / `LINE_MESSAGING_CHANNEL_SECRET` | （空） | LINE **Messaging API** channel（推播 + webhook，跟 LINE Login 是不同 channel）。空 = 推播只寫 log、webhook 回 503。本機測 webhook 用 cloudflared tunnel + **測試用** channel |
+| `EMAIL_*` | — | 本地不用設：`local.py` 固定 console backend，信件內容直接印在 worker log（標題帶 `[DEV]`），不會寄出 |
 | `DB_CONN_POOL` | `false` | psycopg3 連線池，本地用不到 |
 
 ### Tuning（皆有預設，整段可不設）
 
 `AUTH_TOKEN_TTL_DAYS`（7）、`THROTTLE_WRITE_RATE`（30/m）、
 `THROTTLE_LOGIN_RATE`（10/m）、`PAGE_SIZE`（20）、`MAX_PAGE_SIZE`（100）、
-`NINJA_NUM_PROXIES`（1）、`SENTRY_DSN`（空 = 停用）。
+`NINJA_NUM_PROXIES`（1）、`SENTRY_DSN`（空 = 停用）、`EXPORT_MAX_ROWS`（5000）、`THROTTLE_EXPORT_RATE`（10/m）、
+`AUDIT_LOG_RETENTION_DAYS`（365）、`NOTIFICATION_MAX_RETRIES`（5）、`NOTIFICATION_RETENTION_DAYS`（90）、`JOB_RETENTION_DAYS`（30）。
 
 > 改了 `.env.local` 之後要 `make down && make up`（或重啟該容器）才會生效——
 > 設定在 process 啟動時讀入。
@@ -124,6 +127,17 @@ make install
 > Makefile 會先載入 `.env.local`（若存在），否則注入 dummy 的
 > `SECRET_KEY` / `DATABASE_URL`——因為 `config.settings.local` 在 import 時
 > 就會實例化 pydantic `Settings()`，缺這兩個必填欄位會直接失敗。
+
+### 範例功能怎麼在本機試
+
+| 功能 | 怎麼試 |
+| --- | --- |
+| 角色 | `make createsuperuser` 建的帳號自動有 `admin` 角色；LINE 登入的帳號在 `/admin/` 把它加進 `admin` group。`GET /auth/me` 看 `roles` |
+| 匯出 | `GET /articles/export?format=xlsx\|pdf\|zip`（Swagger 可直接下載）。PDF 中文字型在 image 裡（`fonts-arphic-uming`），**改過 Dockerfile 要 `make rebuild`**；直接在 macOS 本機跑時找不到字型檔，會退回不嵌入的字型（只適合看版面） |
+| 通知 | `make shell` → `NotificationService.enqueue_email("you@example.com", "hi", "body")`，worker log 會印出整封信；`/admin/` 的 Notifications 看 outbox 狀態。LINE 推播沒設 token 時只寫 log |
+| 長任務 | `POST /jobs/demo` → 輪詢 `GET /jobs/{id}` → `POST /jobs/{id}/cancel` |
+| 工作日 | `docker compose -f docker/docker-compose.dev.yml exec api uv run python manage.py import_holidays 2026`（會連到 jsDelivr 抓資料；不想連網就 `--file <下載好的 JSON>`） |
+| 稽核 | 在 `/admin/` 改任一筆資料或用 API 改文章，`/admin/audit/auditlog/` 看 `changes` |
 
 ## 常見問題
 

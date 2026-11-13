@@ -38,8 +38,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 # libpq5 for psycopg at runtime. The HEALTHCHECK uses the image's own Python
 # (urllib, stdlib) instead of curl — no extra package, smaller attack surface.
+# fonts-arphic-uming: CJK font embedded into PDF exports (apps/core/exports.py). Not fonts-noto-cjk:
+# Noto CJK ships CFF (PostScript) outlines, which reportlab can't embed ("postscript outlines are
+# not supported"); AR PL UMing is TrueType and has a Taiwan-standard face (UMingTW).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    fonts-arphic-uming \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system app && useradd --system --gid app app
@@ -71,4 +75,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/live', timeout=5).status == 200 else 1)"]
 
+# Exec form (no shell wrapper): python/uvicorn is PID 1 and receives Docker's SIGTERM directly,
+# so its graceful shutdown (UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT, see uvicorn_run.py) actually runs.
+# A shell-form CMD (`CMD python ...`) or an entrypoint script without `exec` would make sh PID 1,
+# swallow SIGTERM, and get the app SIGKILLed after stop_grace_period.
 CMD ["python", "uvicorn_run.py"]

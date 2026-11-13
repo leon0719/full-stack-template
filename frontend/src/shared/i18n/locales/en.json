@@ -1,6 +1,11 @@
 {
   "common": {
     "appName": "App",
+    "loading": "Loading…",
+    "confirm": "OK",
+    "cancel": "Cancel",
+    "close": "Close",
+    "back": "Back",
     "logout": "Logout",
     "forbidden": "403 — You don't have permission to access this page",
     "error": {
@@ -11,6 +16,37 @@
     "notFound": {
       "title": "404 — Page not found",
       "description": "The page you are looking for does not exist. Please check the URL."
+    },
+    "empty": {
+      "title": "Nothing here yet"
+    },
+    "toast": {
+      "region": "Notifications",
+      "dismiss": "Dismiss notification"
+    },
+    "upload": {
+      "prompt": "Drag files here, or click to choose",
+      "accept": "Accepted formats: {{accept}}",
+      "maxSize": "Max {{size}} per file",
+      "invalidType": "\"{{name}}\" is not an accepted format ({{accept}})",
+      "tooLarge": "\"{{name}}\" exceeds the {{size}} limit",
+      "tooMany": "You can choose at most {{count}} files at a time",
+      "single": "Choose only one file"
+    },
+    "spreadsheet": {
+      "missingColumns": "Missing required columns: {{columns}}",
+      "unsupportedFormat": "Unsupported file format. Please upload CSV or XLSX",
+      "unreadable": "Could not read the file. Please check that it is not corrupted"
+    },
+    "job": {
+      "status": {
+        "pending": "Pending",
+        "running": "Running",
+        "succeeded": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled"
+      },
+      "cancel": "Cancel job"
     }
   },
   "auth": {
@@ -44,7 +80,52 @@
         "namePlaceholder": "Enter at least 2 characters",
         "nameMin": "At least 2 characters",
         "submit": "Submit",
-        "greeting": "Hello, {{name}}"
+        "greeting": "Hello, {{name}}",
+        "hint": "Shown in the greeting below"
+      },
+      "kit": {
+        "title": "shared/ui components",
+        "badges": "Badge",
+        "openConfirm": "Open confirm",
+        "openDanger": "Delete (dangerous)",
+        "confirmMessage": "Apply this setting?",
+        "dangerMessage": "Delete this item? This cannot be undone.",
+        "dangerLabel": "Delete",
+        "confirmed": "Confirmed",
+        "cancelled": "Cancelled",
+        "toastSuccess": "Success toast",
+        "toastError": "Error toast",
+        "toastInfo": "Info toast",
+        "saved": "Saved",
+        "saveFailed": "Save failed, please try again later",
+        "info": "This is an info message",
+        "emptyDescription": "Items you create will show up here.",
+        "create": "Create item",
+        "errorDescription": "The server is not responding right now.",
+        "retried": "Retried {{count}} times"
+      },
+      "upload": {
+        "title": "Uploads & files",
+        "imageLabel": "Image compression (compressImage)",
+        "compressed": "{{name}}: {{before}} → {{after}}",
+        "sheetLabel": "Spreadsheet column check (validateColumns, required: {{columns}})",
+        "columnsOk": "All columns present: {{columns}}",
+        "download": "Download sample CSV (downloadBlob)"
+      },
+      "realtime": {
+        "title": "Long-running jobs & live updates",
+        "startJob": "Start a simulated job",
+        "progress": "Progress {{percent}}%",
+        "streamToggleOn": "Connect SSE",
+        "streamToggleOff": "Disconnect SSE",
+        "streamHint": "Needs a backend SSE endpoint at {{path}} plus a stream-token endpoint (this repo's backend has neither yet); for now you only see the backoff reconnects.",
+        "streamStatus": {
+          "idle": "Not connected",
+          "connecting": "Connecting…",
+          "open": "Connected",
+          "reconnecting": "Connection lost, reconnecting…"
+        },
+        "updatedAt": "Last updated: {{time}} ({{relative}})"
       }
     },
     "admin": {

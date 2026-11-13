@@ -57,6 +57,7 @@ describe("djangoAuthAdapter", () => {
           email: "",
           display_name: "Alice",
           picture_url: "https://x/a.jpg",
+          roles: ["user"],
         }),
       );
 
@@ -107,6 +108,7 @@ describe("djangoAuthAdapter", () => {
         email: "alice@example.com",
         display_name: "Alice Smith",
         picture_url: "https://example.com/alice.jpg",
+        roles: ["admin", "user"],
       }),
     );
 
@@ -117,13 +119,34 @@ describe("djangoAuthAdapter", () => {
       user: {
         id: "7",
         name: "alice",
-        roles: ["user"],
+        roles: ["admin", "user"],
         displayName: "Alice Smith",
         pictureUrl: "https://example.com/alice.jpg",
       },
       token: "tok-restored",
     });
     expect(fetchMock).toHaveBeenCalledWith("https://api.example.com/auth/me", expect.any(Object));
+  });
+
+  it("maps roles from /auth/me instead of hard-coding them, and stringifies the numeric id", async () => {
+    localStorage.setItem("auth.token", "tok-admin");
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      ok({
+        id: 42,
+        username: "root",
+        email: "",
+        display_name: null,
+        picture_url: null,
+        roles: ["admin", "user"],
+      }),
+    );
+
+    const { djangoAuthAdapter } = await import("./django-adapter");
+    const session = await djangoAuthAdapter.me();
+
+    expect(session?.user.id).toBe("42");
+    expect(typeof session?.user.id).toBe("string");
+    expect(session?.user.roles).toEqual(["admin", "user"]);
   });
 
   it("me() clears the stored token and returns null when /auth/me responds 401", async () => {

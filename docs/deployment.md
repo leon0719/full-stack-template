@@ -35,8 +35,16 @@ cd backend
 cp .env.prod.example .env.prod && chmod 600 .env.prod
 vim .env.prod        # 照 backend/docs/deployment.md 的必填表逐項填
 make prod-build
-make prod-up
+make prod-up      # 先備份 DB（BACKUP_S3_URI 未設時只印警告），再 migrate、啟動
 ```
+
+之後的更新可以手動（`make prod-backup` → `prod-build` → `prod-migrate` → `prod-up SKIP_BACKUP=1`），
+或開啟 **後端 CD**：根目錄 `.github/workflows/backend-ci.yml` 的 `deploy` job，只在 repo variable
+`DEPLOY_ENABLED=true`、push 到 `main`、且後端 CI 全綠時跑；它 SSH 進主機、快轉到 CI 驗過的 commit，
+在 `backend/` 依序備份 → build → migrate → up，再輪詢 `/health/ready`。主機上要 clone **整個 monorepo**
+（`DEPLOY_PATH` 指向 repo 根目錄）。設定步驟見
+[backend/docs/deployment.md「自動部署（CD）」](../backend/docs/deployment.md#自動部署cd)。
+CD 只管後端；只改前端的 push 不會觸發（`paths` 過濾），前端照下方第 2 節手動部署。
 
 其中**與前端串接直接相關**的變數（填錯最常見的症狀是 CORS 錯誤）：
 
@@ -45,6 +53,14 @@ make prod-up
 | `CORS_ALLOWED_ORIGINS` | **前端**的對外 origin（CloudFront 網域或自訂網域,含 https://,不含路徑） | `https://app.your-domain.com` |
 | `ALLOWED_HOSTS` | **API** 對外域名 | `api.your-domain.com` |
 | `CSRF_TRUSTED_ORIGINS` | API 自己的 https origin（admin 用） | `https://api.your-domain.com` |
+
+匯出端點（`GET /articles/export`）的檔名靠 `Content-Disposition`，後端已用 `CORS_EXPOSE_HEADERS`
+開放給前端 origin 讀取——不用額外設定，但若在 Caddy/nginx/CloudFront 前面改寫 CORS header，要保留它。
+
+**LINE 推播（選用）**：通知要推到使用者的 LINE 時，另外建一個 **Messaging API channel**，填
+`LINE_MESSAGING_CHANNEL_ACCESS_TOKEN` / `LINE_MESSAGING_CHANNEL_SECRET`，webhook URL 設
+`https://api.<domain>/notifications/line/webhook`。它和 LINE Login channel **必須在同一個 provider**
+底下——LINE userId 是 per-provider，不同 provider 時 `LineProfile` 存的 userId 推不到同一個人。
 
 驗證：`curl -i https://api.your-domain.com/health/live` 應為 200。
 
@@ -110,6 +126,14 @@ curl -sI https://app.your-domain.com/login | head -3
 - [ ] `.env.prod` 的 `LINE_LOGIN_CHANNEL_ID` / `LINE_LOGIN_CHANNEL_SECRET` /
       `FRONTEND_BASE_URL` 已填（`_validate_prod` 缺一即拒絕開機）
 - [ ] 瀏覽器完成 LINE 登入 → me → logout 流程，無 CORS/mixed-content 錯誤
+- [ ] 第一個管理員：`createsuperuser` 或在 `/admin/` 把某個 LINE 帳號加進 `admin` group；
+      該帳號 `GET /auth/me` 的 `roles` 含 `admin`，前端 `<RequireRole>` 頁面看得到
+- [ ] （有用 LINE 推播時）Messaging API channel 與 LINE Login channel 在同一個 provider，
+      `LINE_MESSAGING_*` 已填、webhook URL 已設並在 LINE Console 按過 Verify
+- [ ] DB 備份：託管 DB 的 PITR 已開；`BACKUP_S3_URI` 已設（或明確決定只靠 PITR），並演練過一次還原
+      （[backend/docs/deployment.md「備份與還原」](../backend/docs/deployment.md#備份與還原)）
+- [ ] （開 CD 時）`DEPLOY_ENABLED` / `DEPLOY_PATH` variables 與 `DEPLOY_*` secrets 已設，
+      `production` environment 視需要加 required reviewers
 - [ ] （建議）`/admin/` 已用 Caddyfile 的 IP allowlist 保護
       （見 [backend/docs/caddy.md](../backend/docs/caddy.md)）
 
@@ -124,4 +148,5 @@ curl -sI https://app.your-domain.com/login | head -3
 - [ ] 外部監控在打 `https://api.<domain>/health/ready`（不是 `/health/live`——
       它永遠回 200，拿來監控等於沒監控）
 - [ ] `BEAT_HEARTBEAT_URL` 已填，監控端已看到第一次 ping
-- [ ] repo secret `SLACK_WEBHOOK_URL` 已設（CI 失敗通知）
+- [ ] repo secret `SLACK_WEBHOOK_URL` 已設（CI / CD 失敗通知）
+- [ ] `BACKUP_HEARTBEAT_URL` 已填（備份失敗不會有任何錯誤事件）

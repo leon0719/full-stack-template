@@ -23,20 +23,15 @@ cp backend/.env.local.example backend/.env.local
 make up
 make migrate
 
-# 3. 建立測試帳號（擇一）
-#    a. 互動式管理員帳號:
+# 3. 建立管理員帳號（登入 /admin/ 用；API 沒有帳密登入，前端一律走 LINE Login）
 make createsuperuser
-#    b. 或用 API 註冊一般帳號:
-curl -s -X POST http://localhost:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","email":"alice@example.com","password":"pw12345678"}'
 
 # 4. 前端
 cd frontend && bun install && cd ..
 make dev
 ```
 
-開 http://localhost:5173 → 以剛建立的帳號登入 → header 應顯示登入者名稱。
+開 http://localhost:5173 → 用 LINE 登入（需要 tunnel，見下方「LINE 登入本地測試」）→ header 應顯示登入者名稱。
 這代表前後端串接成功（前端打的是真後端 `/auth/*`）。
 
 ## 日常指令
@@ -67,12 +62,32 @@ make dev
 - **Auth**：`frontend/src/shared/auth/adapter/django-adapter.ts` 實作
   `AuthAdapter`（login/logout/me），對接後端 `apps/accounts` 的 opaque bearer
   token。`main.tsx` 啟動時 `setAuthAdapter(djangoAuthAdapter)`。
-  - 後端 accounts 尚無角色概念，adapter 固定給 `roles: ["user"]`。
-    要做 RBAC：後端加角色欄位 → adapter 的 `toUser()` 對映 → 前端
-    `<RequireRole>` / `usePermission()` 即可用（前端已內建）。
+  - **角色（RBAC）怎麼流到前端**：後端角色 = Django Group（`backend/apps/accounts/roles.py`）——
+    每個啟用中的使用者都有 `user`、`is_superuser` 隱含 `admin`，其餘是名稱在 `Role` 內的 group。
+    `GET /auth/me` 回 `roles`（例如 `["admin", "user"]`）→ `django-adapter.ts` 的 `toUser()` 原樣放進
+    `User.roles`（`id` 數字轉字串）→ 前端 `<RequireRole>` / `usePermission()` 直接可用。
+  - 給某個 LINE 登入的使用者 admin 角色：`/admin/` → Users → 該使用者 → Groups 加 `admin`
+    （這個異動會留在 AuditLog）。前端要重新登入或重新整理（重打 `/auth/me`）才會看到新角色。
+  - 新增角色：後端 `Role` 加成員 + 建 group 的 data migration（照抄
+    `accounts/migrations/0003_create_role_groups.py`）、前端 `shared/auth` 的 `Role` 型別同步加上，
+    再 `make gen-api`——兩邊不一致時 `tsc` 會在 `django-adapter.ts` 報錯。
+  - 前端的角色判斷只是藏 UI；真正的門檻是後端端點的 `auth=require_role(Role.X)`（缺角色回 403
+    `permission_denied`）。
 - **CORS**：後端 dev 預設允許 `localhost:5173/3000`；改前端 port 時要同步改
   後端 `.env.local` 的 `CORS_ALLOWED_ORIGINS`。
 - **API 文件**：http://localhost:8000/api/docs（互動式，可直接試打）。
+
+- **長任務**：後端 `apps/jobs` ↔ 前端 `useJobPolling(jobId)`（`@/shared/api`）。發起端點回 201 + job，
+  前端輪詢 `GET /jobs/{id}` 拿 `{id, status, progress, result, error}`，取消打 `POST /jobs/{id}/cancel`。
+  別人的 job 一律 404。試玩：`POST /jobs/demo`（Swagger）；前端 demo 頁的 job 區塊用的是假後端，不需要後端。
+- **檔案下載**：`GET /articles/export?format=xlsx|pdf|zip` 直接回檔案（不包 `BaseResponse`）；前端用
+  `apiDownload()` + `downloadBlob()`。跨網域讀檔名需要 `Content-Disposition` 被 CORS expose，後端已設。
+- **SSE**：前端有 `useEventStream`，但後端**目前沒有** SSE 與 stream token 端點；demo 頁的 SSE 區塊預設不連線。
+- **LINE 推播 vs LINE Login**：兩個不同的 channel。推播走 Messaging API（`LINE_MESSAGING_*`，
+  `apps/notifications`），本地沒設 token 時只寫 log、不會真的送出。要推給 LINE 登入的使用者用
+  `NotificationService.enqueue_line_to_user(user, "...")`（從 `LineProfile` 取 userId），前提是 Login 與
+  Messaging 兩個 channel 在 LINE Developers Console 的**同一個 provider** 底下、使用者已加官方帳號好友。
+  本地請用測試 channel，**不要拿正式 channel 的 token 測**。
 
 ### 新增一條「後端 endpoint + 前端呼叫」
 
@@ -133,7 +148,9 @@ URL）。這是 dev-only 設定，正式環境走 `prod.py` 各自的等效機�
 | `make up` 失敗：cannot connect to Docker daemon | Docker 未啟動：`colima start` |
 | port 8000 / 5173 被占用 | `lsof -i :8000` 找出佔用程序；或改 port（前端改 port 記得同步後端 CORS） |
 | 登入時 browser console 出現 CORS 錯誤 | 後端沒起（`make logs`）；或前端不是跑在 5173/3000 |
-| 登入回 429 | `/auth/login`、`/auth/register` 有 per-IP 節流，稍候再試 |
+| 登入回 429 | `POST /auth/line/exchange` 有 per-IP 節流，稍候再試 |
+| 匯出下載的檔名變成 `download` | 前端讀不到 `Content-Disposition`：確認後端 `CORS_EXPOSE_HEADERS` 還在、請求真的打到後端 |
+| `/auth/me` 的 `roles` 沒有 `admin` | 該帳號不在 `admin` group 也不是 superuser；加完要重新整理前端 |
 | API 回 500：relation does not exist | 忘了 `make migrate` |
 | 前端顯示已登出（token 失效） | 後端 `make down -v` / token 過期屬正常；重新登入即可 |
 | `make check-backend` / `test-local` 資料庫連不上 | `backend/.env.local` 是給容器內用的（`db`/`redis` 主機名）；host 端跑測試請把 `DATABASE_URL` 改為 `postgresql://app:app@localhost:5433/app`（Redis 同理改 `localhost`），或刪掉 `.env.local` 後以 `DATABASE_URL="sqlite://:memory:" make -C backend test-local` 跑記憶體 SQLite（CI 即如此） |

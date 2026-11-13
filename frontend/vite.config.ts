@@ -25,7 +25,17 @@ export default defineConfig({
         // 讓使用者重新下載整包 vendor」。拆開後 vendor chunk 的 hash 只在依賴
         // 真的變動時才改變,快取命中率高得多。
         codeSplitting: {
-          groups: [{ name: "vendor", test: /[\\/]node_modules[\\/]/ }],
+          groups: [
+            // 只在動態 import 時才需要的大型套件要自成一組(priority 較高先比對),
+            // 否則會被併進 vendor、首頁就整包下載,lazy import 等於白做。
+            // read-excel-file 與它的依賴:shared/lib/file/spreadsheet.ts 讀 xlsx 時才載入。
+            {
+              name: "spreadsheet",
+              test: /[\\/]node_modules[\\/](read-excel-file|fflate|saxen|unzipper-esm|worker-f)[\\/]/,
+              priority: 10,
+            },
+            { name: "vendor", test: /[\\/]node_modules[\\/]/ },
+          ],
         },
       },
     },

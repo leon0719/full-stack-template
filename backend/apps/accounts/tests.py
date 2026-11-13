@@ -303,8 +303,8 @@ def test_register_and_login_endpoints_are_gone(db):
     assert client.post("/auth/login", data={}, content_type="application/json").status_code == 404
 
 
-@pytest.mark.unit
-def test_on_authentication_error_redirects_to_frontend_login(settings):
+@pytest.mark.integration
+def test_on_authentication_error_redirects_to_frontend_login(db, settings):
     from allauth.core.exceptions import ImmediateHttpResponse
 
     from apps.accounts.adapters import LineSocialAccountAdapter
@@ -335,3 +335,114 @@ def test_authentication_error_view_redirects_browser_to_frontend_login(db, setti
 
     assert response.status_code == 302
     assert response["Location"] == "https://frontend.example.com/login?error=line_auth_failed"
+
+
+# ==================== RBAC (roles.py / require_role) ====================
+
+
+@pytest.mark.integration
+def test_role_groups_are_created_by_migration(db):
+    from django.contrib.auth.models import Group
+
+    from apps.accounts.roles import GROUP_BACKED_ROLES
+
+    assert set(Group.objects.values_list("name", flat=True)) >= {r.value for r in GROUP_BACKED_ROLES}
+
+
+@pytest.mark.integration
+def test_every_active_user_has_user_role(user):
+    from apps.accounts.roles import Role, get_user_roles
+
+    assert get_user_roles(user) == [Role.USER]
+
+
+@pytest.mark.integration
+def test_admin_group_and_superuser_grant_admin_role(staff_admin, admin_user):
+    from apps.accounts.roles import Role, get_user_roles, has_role
+
+    assert get_user_roles(staff_admin) == [Role.ADMIN, Role.USER]
+    assert get_user_roles(admin_user) == [Role.ADMIN, Role.USER]  # superuser implies admin, no group needed
+    assert has_role(staff_admin, Role.ADMIN)
+
+
+@pytest.mark.integration
+def test_unknown_groups_and_inactive_users_grant_nothing(user):
+    from django.contrib.auth.models import AnonymousUser, Group
+
+    from apps.accounts.roles import Role, get_user_roles
+
+    user.groups.add(Group.objects.create(name="can-edit-in-admin"))
+    assert get_user_roles(user) == [Role.USER]  # admin-permission groups are not API roles
+    user.is_active = False
+    assert get_user_roles(user) == []
+    assert get_user_roles(AnonymousUser()) == []
+    assert get_user_roles(None) == []
+
+
+@pytest.mark.integration
+def test_me_returns_roles(staff_admin, admin_auth_headers, auth_headers):
+    me = Client().get("/auth/me", headers=admin_auth_headers).json()["data"]
+    assert me["roles"] == ["admin", "user"]
+    assert Client().get("/auth/me", headers=auth_headers).json()["data"]["roles"] == ["user"]
+
+
+@pytest.mark.integration
+def test_require_role_401_403_200(user, auth_headers, admin_auth_headers):
+    url = "/notifications/failed"  # first require_role(Role.ADMIN) endpoint
+    assert Client().get(url).status_code == 401
+
+    forbidden = Client().get(url, headers=auth_headers)
+    assert forbidden.status_code == 403
+    assert forbidden.json()["error"]["reason"] == "permission_denied"
+
+    assert Client().get(url, headers=admin_auth_headers).status_code == 200
+
+
+@pytest.mark.unit
+def test_require_role_needs_a_role():
+    from apps.accounts.authentication import require_role
+
+    with pytest.raises(ValueError, match="at least one role"):
+        require_role()
+
+
+# ==================== Audit: LINE login / logout ====================
+
+
+@pytest.mark.integration
+def test_line_login_success_is_audited(user, rf):
+    from apps.accounts.adapters import LineAccountAdapter
+    from apps.audit.models import AuditLog
+
+    request = rf.get("/accounts/line/login/callback/")
+    request.user = user
+    LineAccountAdapter().get_login_redirect_url(request)
+
+    entry = AuditLog.objects.get(action=AuditLog.Action.LINE_LOGIN_SUCCESS)
+    assert entry.actor_id == user.id
+
+
+@pytest.mark.integration
+def test_line_login_failure_is_audited_without_actor(db, settings):
+    from allauth.socialaccount.helpers import render_authentication_error
+    from django.test import RequestFactory
+
+    from apps.audit.models import AuditLog
+
+    render_authentication_error(
+        RequestFactory().get("/accounts/line/login/callback/"), provider="line", error="cancelled"
+    )
+
+    entry = AuditLog.objects.get(action=AuditLog.Action.LINE_LOGIN_FAILED)
+    assert entry.actor is None
+    assert entry.metadata["error"] == "cancelled"
+
+
+@pytest.mark.integration
+def test_logout_is_audited(user, auth_headers):
+    from apps.audit.models import AuditLog
+
+    assert Client().post("/auth/logout", headers=auth_headers).status_code == 200
+    entry = AuditLog.objects.get(action=AuditLog.Action.LOGOUT)
+    assert entry.actor_id == user.id
+    assert entry.metadata["tokens_revoked"] == 1

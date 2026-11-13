@@ -92,6 +92,23 @@ def _on_task_retry(
     )
 
 
+def alert(message: str, **context: object) -> None:
+    """業務層的「已經放棄了,需要人處理」訊號(例如通知 outbox 重試耗盡)。
+
+    走跟 check_queue_depth 同一條路:ERROR log(給 log-based 告警)+ Sentry message
+    (由 Sentry 的 alert rule 轉 Slack,見 docs/alerting.md)。用 capture_message 而不是
+    丟例外:呼叫端通常是 Celery task,丟例外會被記成「任務失敗」甚至觸發重試,
+    但這裡要回報的是資料層面的放棄,不是程式錯誤。
+    """
+    logger.error("[Alerting] {message} - context: {context}", message=message, context=context)
+    import sentry_sdk
+
+    with sentry_sdk.new_scope() as scope:
+        for key, value in context.items():
+            scope.set_extra(key, value)
+        sentry_sdk.capture_message(message, level="error")
+
+
 def get_queue_depth() -> int | None:
     """回傳 Celery 預設佇列的待處理訊息數;取不到時回傳 None。
 

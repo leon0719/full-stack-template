@@ -11,6 +11,7 @@ from django.utils import timezone
 from loguru import logger
 
 from apps.accounts.models import AuthToken
+from apps.audit.models import AuditLog
 from apps.core.security import generate_token
 from config.errors import AppError, ErrorCode
 
@@ -57,4 +58,5 @@ class AuthService:
     def logout(user: User) -> int:
         deleted, _ = AuthToken.objects.filter(user=user).delete()
         logger.info("[Service] logout - user_id: {uid}, tokens_revoked: {n}", uid=user.pk, n=deleted)
+        AuditLog.record(AuditLog.Action.LOGOUT, user=user, tokens_revoked=deleted)
         return deleted
