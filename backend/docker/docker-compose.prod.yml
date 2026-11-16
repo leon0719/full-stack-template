@@ -174,7 +174,7 @@ services:
   # 不使用內建 Caddy（改主機 nginx 或雲端 LB）時，刪除本 service 即可；nginx 站台設定
   # 範例在 docker/nginx/，取捨與步驟見 docs/nginx.md。
   caddy:
-    image: caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
+    image: caddy:2.11.8@sha256:4fcafa98afd1c2e642e353e3c5cf9ddbe892fcee14bc990e7ba2c5b78e51f9cf
     restart: unless-stopped
     ports:
       - "80:80"
