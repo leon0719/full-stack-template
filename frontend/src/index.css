@@ -17,3 +17,13 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
 }
+
+/* modal 開著時擋住背景頁面捲動(漸進增強:新版 Chrome/Firefox 生效,Safari 不支援)。
+   不要改成鎖 body overflow,會造成版面跳動與捲動位置重設。 */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}

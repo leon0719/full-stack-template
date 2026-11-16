@@ -1,11 +1,11 @@
-import { forwardRef, type InputHTMLAttributes } from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/shared/lib";
 
-export type InputProps = InputHTMLAttributes<HTMLInputElement>;
+/** React 19:ref 是一般 prop,ComponentProps<"input"> 已包含 ref */
+export type InputProps = ComponentProps<"input">;
 
-export const Input = forwardRef<HTMLInputElement, InputProps>(({ className, ...props }, ref) => (
+export const Input = ({ className, ...props }: InputProps) => (
   <input
-    ref={ref}
     className={cn(
       "flex h-9 w-full rounded-md border border-foreground/20 bg-background px-3 py-2 text-sm",
       "placeholder:text-foreground/40 focus-visible:outline-none focus-visible:ring-2",
@@ -15,5 +15,4 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(({ className, ...p
     )}
     {...props}
   />
-));
-Input.displayName = "Input";
+);

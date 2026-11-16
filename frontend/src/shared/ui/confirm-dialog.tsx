@@ -80,6 +80,9 @@ export function ConfirmDialogHost() {
     // biome-ignore lint/a11y/useKeyWithClickEvents: 鍵盤的 Esc 由 dialog 的 cancel 事件處理,這裡只處理點背景
     <dialog
       ref={ref}
+      // closedby="any":原生點背景關閉(Chrome/Firefox);Safari 尚不支援,下面 onClick 保留當 fallback。
+      // React 型別還沒有這個屬性,用 spread 傳入
+      {...({ closedby: "any" } as object)}
       aria-labelledby={title ? titleId : messageId}
       aria-describedby={title ? messageId : undefined}
       onCancel={(e) => {
