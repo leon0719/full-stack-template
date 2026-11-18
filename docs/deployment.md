@@ -78,6 +78,11 @@ CD 只管後端；只改前端的 push 不會觸發（`paths` 過濾），前端
    - **SPA fallback**（前端路由直連/重新整理必須）：Error pages 加兩條
      custom error response——403 與 404 都導到 `/index.html`、
      response code 200、TTL 0。
+   - **Response headers policy**：選 AWS managed 的 `SecurityHeadersPolicy`
+     （HSTS、`X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`、
+     `Referrer-Policy`）。CSP 不在這裡設——build 時已寫進 `index.html` 的
+     `<meta>`（`frontend/vite.config.ts` 的 `cspMeta`），從 `VITE_API_BASE_URL`／
+     `VITE_SENTRY_DSN` 算出 `connect-src`。
    - Cache policy：預設 `CachingOptimized` 即可（快取行為由物件的
      Cache-Control 控制：hashed assets immutable、index.html no-cache，
      部署腳本已設好）。
@@ -120,6 +125,7 @@ curl -sI https://app.your-domain.com/login | head -3
 - [ ] migrate 已跑（prod compose 的 migrate job 會自動先跑）
 - [ ] 前端 build 用的 `VITE_API_BASE_URL` = API 對外網域
 - [ ] CloudFront SPA fallback（403/404 → /index.html）已設
+- [ ] CloudFront 已掛 `SecurityHeadersPolicy`；`curl -sI https://<前端網域>/` 看得到 `strict-transport-security`
 - [ ] LINE Developers Console 的 Callback URL 已設為
       `https://api.<domain>/accounts/line/login/callback/`（見
       [backend/docs/deployment.md](../backend/docs/deployment.md) 步驟 3.5）

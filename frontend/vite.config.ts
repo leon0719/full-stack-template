@@ -3,10 +3,53 @@ import { fileURLToPath, URL } from "node:url";
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 
-export default defineConfig({
-  plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()],
+/**
+ * build 時把 CSP 以 <meta> 寫進 index.html,任何靜態主機(S3/CloudFront、nginx)都有效。
+ * 只在 build 套用:dev server 的 HMR 會注入 inline script,嚴格 CSP 會擋掉它。
+ * meta CSP 不支援 frame-ancestors / report-uri,防 clickjacking 要靠主機送的
+ * X-Frame-Options header(部署文件有寫)。
+ */
+function cspMeta(env: Record<string, string>): Plugin {
+  // API 與 Sentry 的 origin 從 build 時的 env 算出來;DSN 的 URL origin 不含 key(userinfo)
+  const origins = [env.VITE_API_BASE_URL, env.VITE_SENTRY_DSN]
+    .filter(Boolean)
+    .map((url) => new URL(url).origin);
+  const policy = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    // api.github.com 只給 /demo 頁用,刪 demo 時一併拿掉
+    `connect-src 'self' https://api.github.com ${origins.join(" ")}`.trim(),
+    // read-excel-file 用 blob URL 起 Web Worker 解壓縮
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+  return {
+    name: "csp-meta",
+    apply: "build",
+    transformIndexHtml: () => [
+      {
+        tag: "meta",
+        attrs: { "http-equiv": "Content-Security-Policy", content: policy },
+        injectTo: "head-prepend",
+      },
+    ],
+  };
+}
+
+export default defineConfig(({ mode }) => ({
+  plugins: [
+    react(),
+    babel({ presets: [reactCompilerPreset()] }),
+    tailwindcss(),
+    cspMeta(loadEnv(mode, process.cwd(), "VITE_")),
+  ],
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
@@ -45,4 +88,4 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
   },
-});
+}));

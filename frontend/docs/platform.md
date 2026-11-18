@@ -19,7 +19,9 @@ Everyday usage rules are in `CLAUDE.md`; this file covers the internals and the 
   session from the persisted token); the store keeps `state.token` in memory only. `tokenStorage` is an
   auth internal and not part of the public API.
 - Security: the token lives in localStorage, so any XSS can steal it. For production prefer an httpOnly
-  cookie issued by the backend, plus your own CSP / security headers (not built into the template).
+  cookie issued by the backend. A CSP `<meta>` is injected at build time (`cspMeta` in `vite.config.ts`;
+  `connect-src` comes from `VITE_API_BASE_URL` / `VITE_SENTRY_DSN` — add any new third-party origin there).
+  HSTS / `X-Frame-Options` / `nosniff` must come from the host as response headers (meta can't set them).
 - Frontend guards (`beforeLoad` / `RequireRole`) are UX only, not an authorization boundary; the backend
   must authorize independently.
 
