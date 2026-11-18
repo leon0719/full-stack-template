@@ -15,7 +15,10 @@
 - 前端：Vite build 出的靜態檔放 S3，CloudFront 分發。
 - 後端：單機 Docker Compose，對外經 Cloudflare 橘雲 + 內建 Caddy 反向代理
   （主機需開放 inbound 443）。
-- 前後端**不同源**，靠後端 CORS 白名單放行前端 origin。
+- 前後端**不同源**，靠後端 CORS 白名單放行前端 origin；但必須**同主網域**（site）——
+  登入 token 放在 `SameSite=Lax` 的 HttpOnly cookie，前端與 API 分屬不同 site（例如
+  `xxx.cloudfront.net` + `api.your-domain.com`）時瀏覽器不會帶 cookie，登入會直接失效。
+  請用 `app.your-domain.com` + `api.your-domain.com` 這類同一主網域底下的子網域。
 
 ## 部署順序
 
@@ -50,7 +53,7 @@ CD 只管後端；只改前端的 push 不會觸發（`paths` 過濾），前端
 
 | 變數 | 填什麼 | 範例 |
 | --- | --- | --- |
-| `CORS_ALLOWED_ORIGINS` | **前端**的對外 origin（CloudFront 網域或自訂網域,含 https://,不含路徑） | `https://app.your-domain.com` |
+| `CORS_ALLOWED_ORIGINS` | **前端**的對外 origin：必須是與 API **同主網域**的自訂網域（不能是 `*.cloudfront.net`，見上），含 https://、不含路徑；同時會自動進 CSRF 信任清單 | `https://app.your-domain.com` |
 | `ALLOWED_HOSTS` | **API** 對外域名 | `api.your-domain.com` |
 | `CSRF_TRUSTED_ORIGINS` | API 自己的 https origin（admin 用）；`CORS_ALLOWED_ORIGINS` 的前端 origin 會自動併入，不用重複填 | `https://api.your-domain.com` |
 
@@ -86,8 +89,10 @@ CD 只管後端；只改前端的 push 不會觸發（`paths` 過濾），前端
    - Cache policy：預設 `CachingOptimized` 即可（快取行為由物件的
      Cache-Control 控制：hashed assets immutable、index.html no-cache，
      部署腳本已設好）。
-3. **自訂網域（建議）**：ACM（**us-east-1**）簽發憑證 → distribution 加
-   Alternate domain name → DNS 加 CNAME/alias 指向 CloudFront。
+3. **自訂網域（必要）**：網域必須與 API 在同一個主網域底下（`app.your-domain.com` +
+   `api.your-domain.com`），否則登入 cookie 送不出去。ACM（**us-east-1**）簽發憑證 →
+   distribution 加 Alternate domain name → DNS 加 CNAME/alias 指向 CloudFront。
+   只用預設的 `*.cloudfront.net` 網址無法登入。
 4. 記下 **bucket 名稱**與 **Distribution ID**（如 `E1ABCDEF234567`）。
 
 ### 每次部署
@@ -114,14 +119,17 @@ curl -sI https://app.your-domain.com | head -5
 # 2. SPA fallback（深連結應回 index.html 而非 403/404）
 curl -sI https://app.your-domain.com/login | head -3
 # 3. 端對端:瀏覽器開前端 → 登入 → header 顯示使用者名稱,
-#    DevTools Network 應看到對 api.your-domain.com 的請求且無 CORS 錯誤
+#    DevTools Network 應看到對 api.your-domain.com 的請求且無 CORS 錯誤；
+#    Application → Cookies 的 api.your-domain.com 底下有 __Host-auth（HttpOnly、Secure）
 ```
 
 ## 3. 上線檢核清單
 
 - [ ] 後端 `make prod-up` 成功，Cloudflare SSL mode 為 Full 且 caddy 已簽出憑證
 - [ ] `https://api.<domain>/health/live` 回 200
-- [ ] `.env.prod` 的 `CORS_ALLOWED_ORIGINS` = 前端 origin（含 https://）
+- [ ] `.env.prod` 的 `CORS_ALLOWED_ORIGINS` = 前端 origin（含 https://）；它同時是 CSRF 信任來源，
+      填錯會讓登入與所有寫入請求回 `403 csrf_failed`
+- [ ] 前端網域與 API 網域在**同一個主網域**底下（不是 `*.cloudfront.net`）
 - [ ] migrate 已跑（prod compose 的 migrate job 會自動先跑）
 - [ ] 前端 build 用的 `VITE_API_BASE_URL` = API 對外網域
 - [ ] CloudFront SPA fallback（403/404 → /index.html）已設

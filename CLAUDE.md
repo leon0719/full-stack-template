@@ -40,10 +40,13 @@ Never run these yourself — stop and hand the exact command to the user
 
 - **Auth**: LINE Login only, no username/password. The backend uses django-allauth's LINE provider
   (`SOCIALACCOUNT_ONLY=True`) for the OAuth exchange; a custom adapter (`backend/apps/accounts/adapters.py`)
-  turns the login into the existing opaque bearer token, stores it behind a one-time exchange code
+  turns the login into the existing opaque token, stores it behind a one-time exchange code
   (60 s TTL), and redirects to the frontend `/login/callback?code=...`. The frontend
-  `django-adapter.ts` `completeLineLogin(code)` calls `POST /auth/line/exchange` for the token, then
-  `GET /auth/me`. `main.tsx` calls `setAuthAdapter(djangoAuthAdapter)` at startup. Testing the LINE callback
+  `django-adapter.ts` `completeLineLogin(code)` calls `POST /auth/line/exchange` (with `X-CSRFToken` from
+  `GET /auth/csrf`), which sets the token as an HttpOnly cookie (`__Host-auth` in prod, `auth` locally) —
+  the browser never sees it — then `GET /auth/me`. Bearer is kept for tests only; no
+  endpoint hands out a Bearer token. `main.tsx` calls `setAuthAdapter(djangoAuthAdapter)` at startup.
+  Frontend and API must share a parent domain in prod (SameSite=Lax cookie). Testing the LINE callback
   locally needs public HTTPS — see the cloudflared section of `docs/development.md`.
 - **Roles (RBAC)**: backend roles are Django Groups (`backend/apps/accounts/roles.py`: every active user has
   `user`, `is_superuser` implies `admin`, other roles = groups named in `Role`). `GET /auth/me` returns
@@ -65,8 +68,12 @@ Never run these yourself — stop and hand the exact command to the user
   `CORS_EXPOSE_HEADERS` (cross-origin in dev and prod).
 - **Not wired yet**: the frontend `useEventStream` (SSE) has no backend counterpart — no SSE / stream-token
   endpoint in this repo's backend. Add both before using it.
-- **Dev wiring**: frontend `.env.development` sets `VITE_API_BASE_URL=http://localhost:8000` (cross-origin);
-  backend dev CORS allows 5173 by default — change the port on both sides together.
+- **Dev wiring**: frontend `.env.development` sets `VITE_API_BASE_URL=http://localhost:8000` (cross-origin,
+  same site, so the cookie works; requests carry `credentials: "include"` + `X-CSRFToken`); backend dev
+  CORS allows 5173 by default — change the port on both sides together. LINE tunnel mode points
+  cloudflared at Vite (5173) instead and sets `VITE_API_BASE_URL=` (same origin): `vite.config.ts`
+  `server.proxy` forwards the backend paths to `localhost:8000`. `CORS_ALLOWED_ORIGINS` also feeds
+  `CSRF_TRUSTED_ORIGINS`.
 - **CI/CD**: `.github/workflows/{backend,frontend}-ci.yml`, each with its own `paths` filter; no workflows
   in the subdirectories. `backend-ci.yml` also has an opt-in `deploy` job (only when repo variable
   `DEPLOY_ENABLED=='true'`; SSH → fast-forward to the CI-verified SHA → `make prod-backup/build/migrate/up`

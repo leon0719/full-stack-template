@@ -43,6 +43,18 @@ function cspMeta(env: Record<string, string>): Plugin {
   };
 }
 
+// 後端 API 前綴(backend/config/urls.py)+ allauth 的 /accounts。不含 Django /admin/:
+// 前端有自己的 /admin 路由,要進 Django admin 請直連 http://localhost:8000/admin/。
+const BACKEND_PREFIXES = [
+  "/accounts",
+  "/auth",
+  "/articles",
+  "/notifications",
+  "/jobs",
+  "/health",
+  "/api",
+];
+
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
@@ -82,6 +94,19 @@ export default defineConfig(({ mode }) => ({
         },
       },
     },
+  },
+  server: {
+    // 本機 LINE 登入測試(docs/development.md):cloudflared tunnel 接 Vite,後端路徑由這裡轉給
+    // Django,前端與 API 同源,cookie 才送得出去。一般開發 VITE_API_BASE_URL 直連後端,不經過它。
+    // 不設 changeOrigin / xfwd:Host 與 cloudflared 帶來的 X-Forwarded-Proto: https 要原樣傳給
+    // Django,allauth 才會產生 https://<tunnel>/accounts/line/login/callback/。
+    allowedHosts: [".trycloudflare.com"],
+    proxy: Object.fromEntries(
+      BACKEND_PREFIXES.map((prefix) => [
+        prefix,
+        { target: "http://localhost:8000", changeOrigin: false },
+      ]),
+    ),
   },
   test: {
     environment: "jsdom",

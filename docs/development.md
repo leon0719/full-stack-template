@@ -60,8 +60,10 @@ make dev
   `.env.local`，所以用 `.env.local` 覆蓋 dev 設定**不會生效**（會被
   `.env.development` 蓋掉）。
 - **Auth**：`frontend/src/shared/auth/adapter/django-adapter.ts` 實作
-  `AuthAdapter`（login/logout/me），對接後端 `apps/accounts` 的 opaque bearer
-  token。`main.tsx` 啟動時 `setAuthAdapter(djangoAuthAdapter)`。
+  `AuthAdapter`（login/logout/me），對接後端 `apps/accounts`：登入後 token 放在
+  HttpOnly cookie（JS 讀不到），前端請求對 API origin 帶 `credentials: "include"`，
+  寫入請求另帶 `X-CSRFToken`（`GET /auth/csrf` 取得）。`main.tsx` 啟動時
+  `setAuthAdapter(djangoAuthAdapter)`。
   - **角色（RBAC）怎麼流到前端**：後端角色 = Django Group（`backend/apps/accounts/roles.py`）——
     每個啟用中的使用者都有 `user`、`is_superuser` 隱含 `admin`，其餘是名稱在 `Role` 內的 group。
     `GET /auth/me` 回 `roles`（例如 `["admin", "user"]`）→ `django-adapter.ts` 的 `toUser()` 原樣放進
@@ -94,52 +96,69 @@ make dev
 1. 後端：照 [backend/CLAUDE.md](../backend/CLAUDE.md) 的分層加
    endpoint（或用 backend 的 `scaffold-app` / `add-resource` skill）。
 2. 前端：在 page 的 `api/` segment 用 `@/shared/api` 的
-   `apiGet/apiPost/...` 包 TanStack Query hook（已自動夾帶 Bearer token、
+   `apiGet/apiPost/...` 包 TanStack Query hook（已自動帶 cookie 與 CSRF token、
    401 自動清 session；或用 frontend 的 `scaffold-page` skill）。
 
 ## LINE 登入本地測試（cloudflared quick tunnel）
 
-LINE Login 的 callback 需要公開 HTTPS URL，本機的 `localhost:8000` 無法直接註冊到
-LINE Developers Console。用 cloudflared 的 quick tunnel 暫時開一個公開網址：
+LINE Login 的 callback 需要公開 HTTPS URL，本機的 `localhost` 無法直接註冊到
+LINE Developers Console。登入 token 放在 HttpOnly cookie，前端與 API 必須**同 site**
+cookie 才送得出去，所以 tunnel 接的是 **Vite dev server（5173）**，不是後端：
+`frontend/vite.config.ts` 的 `server.proxy` 會把 `/accounts`、`/auth`、`/articles`、
+`/notifications`、`/jobs`、`/health`、`/api` 轉給 `http://localhost:8000`，瀏覽器看到的
+前端與 API 都是同一個 `https://<random>.trycloudflare.com`。
 
 1. 啟動後端：`make up`
 2. 啟動 tunnel（另開一個 terminal）：
    ```bash
-   cloudflared tunnel --url http://localhost:8000
+   cloudflared tunnel --url http://localhost:5173
    ```
    輸出會有一行 `https://<random>.trycloudflare.com` —— 這就是這次測試要用的網址。
-3. 更新 `backend/.env.local`：
-   - `ALLOWED_HOSTS` 加上該 tunnel hostname（例如
+3. 更新 `backend/.env.local`（把 `<random>` 換成實際值）：
+   - `ALLOWED_HOSTS` 加上 tunnel hostname（例如
      `localhost,127.0.0.1,0.0.0.0,host.docker.internal,<random>.trycloudflare.com`）
+   - `FRONTEND_BASE_URL=https://<random>.trycloudflare.com`（登入完成後導回前端的位置）
+   - `CORS_ALLOWED_ORIGINS` 加上 `https://<random>.trycloudflare.com`
+     （同時會進 CSRF 信任清單，不用另外設 `CSRF_TRUSTED_ORIGINS`）
    - 重啟後端讓設定生效：`make down && make up`
 4. 到 [LINE Developers Console](https://developers.line.biz/console/) 的對應 Channel，
    把 Callback URL 設為 `https://<random>.trycloudflare.com/accounts/line/login/callback/`
 5. 更新前端 `frontend/.env.development.local`（沒有就新建）：
    ```
-   VITE_API_BASE_URL=https://<random>.trycloudflare.com
+   VITE_API_BASE_URL=
    ```
+   留空 = 以目前頁面同源為 API origin，請求才會經過 Vite proxy。
    **務必是 `.env.development.local`，不是 `.env.local`** —— Vite 的 mode 專屬檔
    優先權高於通用檔，寫在 `.env.local` 會被 `.env.development` 的
-   `http://localhost:8000` 蓋掉，前端仍會打本機後端，`redirect_uri` 就會變成
-   `http://localhost:8000/...`，LINE 回你 `400 Invalid redirect_uri value`。
-6. 啟動前端：`make dev`，開 http://localhost:5173/login，點「使用 LINE 登入」。
+   `http://localhost:8000` 蓋掉，前端仍會直連本機後端（跨 site，cookie 送不出去）。
+6. 啟動前端：`make dev`，**用 tunnel 網址**開 `https://<random>.trycloudflare.com/login`
+   （不是 `localhost:5173`），點「使用 LINE 登入」。
    若 dev server 本來就開著，**必須重啟** —— Vite 只在啟動時讀 env 檔。
-   驗證有吃到設定：
+   驗證 proxy 有通（回 `200`）：
    ```bash
-   curl -s http://localhost:5173/src/shared/config/env.ts | grep -o '"VITE_API_BASE_URL": "[^"]*"'
+   curl -s -o /dev/null -w "%{http_code}\n" https://<random>.trycloudflare.com/health/live
    ```
 
-**注意**：`backend/config/settings/local.py` 已設定信任 tunnel 傳來的
-`X-Forwarded-Proto`（見該檔案註解），讓 allauth 產生的 `redirect_uri` 是
-`https://` 而非 `http://`——若沒有這行，LINE 會拒絕請求並回報
-`redirect_uri` 不符（因為 Console 上註冊的是 `https://` 開頭的 callback
-URL）。這是 dev-only 設定，正式環境走 `prod.py` 各自的等效機制。
+**注意**：proxy 刻意不改 `Host`、也不加 `X-Forwarded-*`，讓 Django 看到 tunnel 的 Host 與
+cloudflared 帶來的 `X-Forwarded-Proto: https`。`backend/config/settings/local.py` 已設定信任這個
+標頭（見該檔案註解），allauth 才會產生 `https://` 的 `redirect_uri`；沒有的話 LINE 會回
+`400 Invalid redirect_uri value`。這是 dev-only 設定，正式環境走 `prod.py` 各自的等效機制。
 
-**注意**：quick tunnel 每次啟動網址都會變。每次重新測試都要重複步驟 2-5
-（更新 `ALLOWED_HOSTS`、LINE Console 的 Callback URL、前端 `VITE_API_BASE_URL`）。
+**注意**：local 設定的 cookie 名稱是 `auth`、`Secure=False`（Safari 不收 `http://localhost` 的
+Secure cookie），經 https tunnel 同源使用沒有問題；正式環境才是 `__Host-auth`。
+
+**注意**：Vite 不 proxy Django 的 `/admin/`（前端有自己的 `/admin` 路由）；要進 Django admin 請直連
+`http://localhost:8000/admin/`。
+
+**注意**：quick tunnel 每次啟動網址都會變。每次重新測試都要重複步驟 2-4
+（更新 `backend/.env.local` 的 `ALLOWED_HOSTS` / `FRONTEND_BASE_URL` / `CORS_ALLOWED_ORIGINS`、
+LINE Console 的 Callback URL）；前端 `.env.development.local` 只需設一次。
 若要固定網址（省去每次更新的麻煩），改用 cloudflared 的具名 tunnel（需要一個
 掛到 Cloudflare 的網域）：`cloudflared tunnel login && cloudflared tunnel create <name>`，
 之後網址固定，只需設定一次。
+
+測完請把 `backend/.env.local` 的上述三項與前端 `.env.development.local` 還原；日常開發
+（`localhost:5173` → `localhost:8000` 直連）完全不經過 proxy，不受影響。
 
 ## 疑難排解
 
