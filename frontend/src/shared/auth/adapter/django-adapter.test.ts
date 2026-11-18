@@ -46,7 +46,7 @@ describe("djangoAuthAdapter", () => {
     vi.stubGlobal("localStorage", makeStorage());
     vi.stubEnv("VITE_API_BASE_URL", "https://api.example.com");
     // env 在模組載入時快照,所以 client 也得在 stubEnv 之後才 import
-    const { resetCsrfToken } = await import("@/shared/api");
+    const { resetCsrfToken } = await import("@/shared/api/client");
     resetCsrfToken();
   });
 
@@ -243,6 +243,37 @@ describe("djangoAuthAdapter", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(new Headers(initOf(fetchMock, 3).headers).get("X-CSRFToken")).toBe("fresh");
+  });
+
+  it("logout rejects on an HTTP failure so the cookie is not silently left alive", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(csrf())
+      .mockResolvedValueOnce(fail(500, "Internal error", "internal_error"));
+
+    const { djangoAuthAdapter } = await import("./django-adapter");
+    await expect(djangoAuthAdapter.logout()).rejects.toThrow(/internal error/i);
+  });
+
+  it("logout rejects after exactly one csrf_failed retry", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(csrf("a"))
+      .mockResolvedValueOnce(fail(403, "CSRF check failed", "csrf_failed"))
+      .mockResolvedValueOnce(csrf("b"))
+      .mockResolvedValueOnce(fail(403, "CSRF check failed", "csrf_failed"));
+
+    const { djangoAuthAdapter } = await import("./django-adapter");
+    await expect(djangoAuthAdapter.logout()).rejects.toThrow(/csrf check failed/i);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("logout resolves on 401: the session is already gone server-side", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(csrf())
+      .mockResolvedValueOnce(fail(401, "Authentication required", "unauthenticated"));
+
+    const { djangoAuthAdapter } = await import("./django-adapter");
+    await expect(djangoAuthAdapter.logout()).resolves.toBeUndefined();
   });
 
   it("logout rejects when the request cannot reach the server", async () => {

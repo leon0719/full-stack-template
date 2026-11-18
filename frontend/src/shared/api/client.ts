@@ -129,6 +129,37 @@ function isRawBody(body: unknown): body is FormData | Blob | URLSearchParams | A
   );
 }
 
+/**
+ * 帶 cookie 憑證送請求並回傳原始 `Response`(不呼叫 `settle`、不清 session,由呼叫端決定怎麼處理失敗)。
+ * 只有自家 API 帶 `credentials: "include"`;寫入另外帶 `X-CSRFToken`,403 `csrf_failed` 時
+ * 重抓 token 並**只重送一次**——這是全專案唯一的 csrf_failed 判定與重試次數(`send()`、django-adapter 共用)。
+ * 重試後仍失敗就把那個失敗的 Response 原樣回傳。
+ */
+export async function fetchWithCsrf(
+  method: Method,
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  // 只有自家 API 才帶 cookie;寫入另外要 X-CSRFToken(其他 host 兩者都不給)
+  const trusted = isApiOrigin(url);
+  const needsCsrf = trusted && method !== "GET";
+
+  for (let attempt = 0; ; attempt++) {
+    const headers = new Headers(init.headers);
+    if (needsCsrf) headers.set("X-CSRFToken", await getCsrfToken());
+    const res = await fetch(url, {
+      ...init,
+      ...(trusted && { credentials: "include" as const }),
+      method,
+      headers,
+    });
+    if (res.ok || !needsCsrf || attempt > 0) return res;
+    // token 過期或被輪替(如剛登入):重抓後只重送一次;clone 讓呼叫端仍能讀 body
+    if (!isCsrfFailure(res.status, parseText(await res.clone().text()))) return res;
+    resetCsrfToken();
+  }
+}
+
 async function send(
   method: Method,
   path: string,
@@ -143,29 +174,10 @@ async function send(
   if (typeof payloadBody === "string" && !headers.has("Content-Type"))
     headers.set("Content-Type", "application/json");
   const url = resolveUrl(path);
-  // 只有自家 API 才帶 cookie;寫入另外要 X-CSRFToken(其他 host 兩者都不給)
-  const trusted = isApiOrigin(url);
-  const needsCsrf = trusted && method !== "GET";
 
-  for (let attempt = 0; ; attempt++) {
-    const attemptHeaders = new Headers(headers);
-    if (needsCsrf) attemptHeaders.set("X-CSRFToken", await getCsrfToken());
-    const res = await fetch(url, {
-      ...init,
-      ...(trusted && { credentials: "include" as const }),
-      method,
-      headers: attemptHeaders,
-      body: payloadBody,
-    });
-    if (res.ok) return { res, url };
-    const payload = parseText(await res.text());
-    // token 過期或被輪替(如剛登入):重抓後只重送一次,再失敗就交給 settle 丟 ApiError
-    if (attempt === 0 && needsCsrf && isCsrfFailure(res.status, payload)) {
-      resetCsrfToken();
-      continue;
-    }
-    settle(method, path, url, res.status, payload);
-  }
+  const res = await fetchWithCsrf(method, url, { ...init, headers, body: payloadBody });
+  if (!res.ok) settle(method, path, url, res.status, parseText(await res.text()));
+  return { res, url };
 }
 
 async function request<T>(

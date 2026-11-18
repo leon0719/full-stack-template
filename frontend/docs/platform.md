@@ -17,12 +17,13 @@ Everyday usage rules are in `CLAUDE.md`; this file covers the internals and the 
 - This project's adapter is `djangoAuthAdapter` (`shared/auth/adapter/django-adapter.ts`: LINE login →
   exchange code → HttpOnly cookie → `GET /auth/me`), set in `main.tsx` via `setAuthAdapter`. It uses raw
   `fetch` and unwraps the `BaseResponse` envelope itself (the `shared/api` client clears the auth store on any
-  401, which login must decide for itself), but every call sends `credentials: "include"`, and the two writes
-  (`POST /auth/line/exchange`, `POST /auth/logout`) send `X-CSRFToken` from the client's cached
-  `getCsrfToken()` and refetch + retry once on `csrf_failed` (otherwise a stale token would make logout fail
-  silently and leave the cookie alive). It imports `getCsrfToken` / `resetCsrfToken` from `@/shared/api`,
-  so `shared/auth` ↔ `shared/api` is a runtime import cycle; it is safe because neither side calls the other
-  at module load, only inside functions — keep it that way.
+  401, which login must decide for itself), but its writes (`POST /auth/line/exchange`, `POST /auth/logout`) go
+  through `fetchWithCsrf` from `@/shared/api` — the same credentials + `X-CSRFToken` + retry-once-on-`csrf_failed`
+  policy `apiPost` uses, returning the raw `Response` without `settle()`. `logout()` throws on any non-OK
+  response (network, 5xx, `csrf_failed` after the one retry) so the store never claims "logged out" while the
+  cookie is still alive; the one exception is 401, where the session is already gone. The adapter imports
+  `@/shared/api`, so `shared/auth` ↔ `shared/api` is a runtime import cycle; it is safe because neither side
+  calls the other at module load, only inside functions — keep it that way.
 - Prod fail-fast: under `import.meta.env.PROD`, `completeLineLogin/init` throw if the adapter is still `fakeAuthAdapter`.
 - No token in the browser: the session is an HttpOnly cookie set by the backend on `POST /auth/line/exchange`
   (the response body is `{"data": null}`) and cleared by `POST /auth/logout`, so JavaScript can't read it and an
@@ -63,8 +64,10 @@ Everyday usage rules are in `CLAUDE.md`; this file covers the internals and the 
   `reason: "csrf_failed"` (token rotated, or stale) → `resetCsrfToken()`, refetch, and retry
   **exactly once**; a second `csrf_failed` throws `ApiError`. The backend checks CSRF before the session, so
   an expired/revoked cookie on a write shows up as `csrf_failed` first, then 401 on the retry (store cleared,
-  no more retries). `apiUpload` (XHR) sends the same headers + `withCredentials` but does not retry; it only
-  drops the cached token so the next call refetches.
+  no more retries). The credentials + CSRF + retry-once policy lives in one place, `fetchWithCsrf()` (exported;
+  returns the raw `Response`, no `settle()`), which `apiGet/apiPost/...` and the auth adapter share.
+  `apiUpload` (XHR) sends the same headers + `withCredentials` but does not retry; it only drops the cached
+  token so the next call refetches.
 - Non-2xx throws `ApiError` (`status` + `reason` + `message` + `payload`); a same-origin 401 clears the session.
 
 ### 上傳 / 下載 / 長任務 / SSE（皆從 `@/shared/api` 匯入）

@@ -1,4 +1,4 @@
-import { type components, getCsrfToken, resetCsrfToken } from "@/shared/api";
+import { type components, fetchWithCsrf } from "@/shared/api";
 import { env } from "@/shared/config";
 import type { AuthAdapter, User } from "../model/types";
 
@@ -36,32 +36,13 @@ async function extractErrorMessage(res: Response, fallback: string): Promise<str
   return fallback;
 }
 
-async function isCsrfFailure(res: Response): Promise<boolean> {
-  if (res.status !== 403) return false;
-  try {
-    const payload = (await res.clone().json()) as { error?: { reason?: unknown } | null };
-    return payload?.error?.reason === "csrf_failed";
-  } catch {
-    return false;
-  }
-}
-
-// cookie 認證的寫入要帶 X-CSRFToken;token 過期或被輪替(csrf_failed)時重抓後只重送一次,
-// 否則 logout 會悄悄失敗、cookie 還在。
-async function post(path: string, body?: unknown): Promise<Response> {
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(`${env.apiBaseUrl}${path}`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json", "X-CSRFToken": await getCsrfToken() },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    if (attempt === 0 && (await isCsrfFailure(res))) {
-      resetCsrfToken();
-      continue;
-    }
-    return res;
-  }
+// cookie 認證的寫入:credentials + X-CSRFToken + csrf_failed 重試一次,全由 shared/api 的 fetchWithCsrf 負責
+// (與 apiPost 同一份規則);回傳原始 Response,401 要不要清 session 由這裡決定。
+function post(path: string, body?: unknown): Promise<Response> {
+  return fetchWithCsrf("POST", `${env.apiBaseUrl}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 }
 
 async function fetchMe(): Promise<User | null> {
@@ -95,8 +76,15 @@ export const djangoAuthAdapter: AuthAdapter = {
   },
 
   async logout() {
-    // 後端清 cookie 並撤銷 token;網路失敗讓 rejection 往上冒(cookie 沒清,假裝登出會騙到使用者)
-    await post("/auth/logout");
+    // 後端清 cookie 並撤銷 token。失敗(網路、5xx、重試後仍 csrf_failed)一律 throw:cookie 還活著,
+    // store 不能假裝已登出,否則下次 init()/me() 又會悄悄登入。唯一例外是 401:session 本來就已失效
+    // (過期/已撤銷),登出的目標狀態已達成,再丟錯只會讓 UI 卡在已登入。
+    const res = await post("/auth/logout");
+    if (!res.ok && res.status !== 401) {
+      throw new Error(
+        await extractErrorMessage(res, `POST /auth/logout failed with ${res.status}`),
+      );
+    }
   },
 
   me: fetchMe,

@@ -7,6 +7,7 @@ import {
   apiPatch,
   apiPost,
   CSRF_PATH,
+  fetchWithCsrf,
   getCsrfToken,
   resetCsrfToken,
 } from "./client";
@@ -373,6 +374,64 @@ describe("api client", () => {
     const init = initOf(spy, 1);
     expect(init.body).toBe(form);
     expect(new Headers(init.headers).get("Content-Type")).toBeNull();
+  });
+});
+
+describe("fetchWithCsrf", () => {
+  beforeEach(() => {
+    useAuthStore.setState({
+      user: { id: "1", name: "admin", roles: ["admin"] },
+      status: "authenticated",
+    });
+    resetCsrfToken();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("sends credentials + X-CSRFToken on API-origin writes and returns the raw Response", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(csrf("csrf-1"))
+      .mockResolvedValueOnce(ok({ data: { id: 1 }, error: null }));
+    const res = await fetchWithCsrf("POST", "/items", {
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(await res.json()).toEqual({ data: { id: 1 }, error: null });
+    expect(initOf(spy, 1).credentials).toBe("include");
+    expect(initOf(spy, 1).method).toBe("POST");
+    const headers = new Headers(initOf(spy, 1).headers);
+    expect(headers.get("X-CSRFToken")).toBe("csrf-1");
+    expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("retries exactly once on csrf_failed and returns the second failure without throwing", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(csrf("a"))
+      .mockResolvedValueOnce(csrfFailed())
+      .mockResolvedValueOnce(csrf("b"))
+      .mockResolvedValueOnce(csrfFailed());
+    const res = await fetchWithCsrf("POST", "/items");
+    expect(res.status).toBe(403);
+    expect(spy).toHaveBeenCalledTimes(4);
+    expect(new Headers(initOf(spy, 3).headers).get("X-CSRFToken")).toBe("b");
+  });
+
+  it("does not touch the auth store on 401 (callers decide)", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(csrf())
+      .mockResolvedValueOnce(unauthorized());
+    const res = await fetchWithCsrf("POST", "/items");
+    expect(res.status).toBe(401);
+    expect(useAuthStore.getState().status).toBe("authenticated");
+  });
+
+  it("sends neither credentials nor CSRF to other origins", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ok({}));
+    await fetchWithCsrf("POST", "https://api.github.com/x");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(initOf(spy, 0).credentials).toBeUndefined();
+    expect(new Headers(initOf(spy, 0).headers).get("X-CSRFToken")).toBeNull();
   });
 });
 
