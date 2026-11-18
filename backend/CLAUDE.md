@@ -88,8 +88,10 @@ New app → use the **scaffold-app** skill. New endpoint/resource → **add-reso
   (IDOR → 404), `StandardPagination` inside `BaseResponse`, `FilterSchema` (`?status=&q=`),
   `WriteRateThrottle`, atomic-claim Celery side effect, `external_services.py` webhook example.
 - **`apps/accounts`** — LINE-only login via django-allauth; `adapters.py` trades the login for a one-time
-  exchange code, `POST /auth/line/exchange` (per-IP `LoginThrottle`) returns an opaque bearer token
-  (SHA-256 digest stored). `BearerAuth` guards `POST /auth/logout`, `GET /auth/me` (returns `roles`);
+  exchange code, `POST /auth/line/exchange` (per-IP `LoginThrottle`, CSRF-checked) sets the opaque token (SHA-256
+  digest stored) in an HttpOnly cookie, never the body. `BearerAuth` reads `Authorization: Bearer` or, as a fallback,
+  that cookie (cookie + unsafe method → CSRF check, 403 `csrf_failed`; `GET /auth/csrf` hands out the token) and guards
+  `POST /auth/logout` (clears the cookie), `GET /auth/me` (returns `roles`);
   `require_role()` = `BearerAuth` + role check (`roles.py`, Django Groups).
 - **`apps/health`** — `/health/live` (process only) and `/health/ready` (DB + cache + Celery).
 - **`apps/notifications`** / **`apps/jobs`** / **`apps/holidays`** — outbox + LINE push/webhook, long-running jobs,

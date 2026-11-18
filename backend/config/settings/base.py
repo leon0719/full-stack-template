@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     # deployment sets these in its .env file (prod rejects the dev defaults).
     ALLOWED_HOSTS: str = _DEV_ALLOWED_HOSTS
     CORS_ALLOWED_ORIGINS: str = _DEV_CORS_ALLOWED_ORIGINS
-    # Origins trusted for CSRF checks (Django admin, any cookie-authed form).
-    # Semantically distinct from CORS: set this to the API's own https origin(s).
+    # The API's OWN https origin(s) for CSRF checks (Django admin). Frontend origins
+    # (CORS_ALLOWED_ORIGINS) are added automatically — don't repeat them here.
     CSRF_TRUSTED_ORIGINS: str = ""
     CELERY_BROKER_URL: SecretStr = SecretStr(_DEV_CELERY_BROKER_URL)
     CACHE_URL: SecretStr = SecretStr(_DEV_CACHE_URL)
@@ -352,6 +352,12 @@ PASSWORD_HASHERS = [
 # CORS
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = settings.get_cors_allowed_origins()
+# The browser sends the HttpOnly auth cookie cross-origin, so credentials must be allowed
+# (never combine with CORS_ALLOW_ALL_ORIGINS — local.py keeps that False).
+CORS_ALLOW_CREDENTIALS = True
+# Cookie-authed writes are cross-origin too: Django's CSRF Origin check must trust the frontend
+# origins as well as the API's own. prod.py must not override this.
+CSRF_TRUSTED_ORIGINS = [*settings.get_csrf_trusted_origins(), *CORS_ALLOWED_ORIGINS]
 # The frontend is cross-origin (dev 5173 → 8000, prod CloudFront → api domain), and browsers hide
 # non-safelisted response headers from fetch() unless exposed. apiDownload() reads the filename of
 # file exports (GET /articles/export) from Content-Disposition.
@@ -378,6 +384,10 @@ CACHES = {
 # Auth
 # ---------------------------------------------------------------------------
 AUTH_TOKEN_TTL_DAYS = settings.AUTH_TOKEN_TTL_DAYS
+# Browser auth cookie holding the raw opaque token (see apps.accounts.authentication). The __Host- prefix makes
+# browsers require Secure + Path=/ + no Domain; local.py drops both because dev runs on plain http.
+AUTH_COOKIE_NAME = "__Host-auth"
+AUTH_COOKIE_SECURE = True
 
 # ---------------------------------------------------------------------------
 # Throttling rates (consumed by apps.core.throttling)

@@ -85,7 +85,8 @@ export interface paths {
         put?: never;
         /**
          * Line Exchange
-         * @description Trade a one-time LINE-login exchange code for a bearer token.
+         * @description Trade a one-time LINE-login exchange code for a session: the token goes into the HttpOnly auth
+         *     cookie, never the body. Browser endpoint (CSRF-checked, before the code is consumed).
          */
         post: operations["apps_accounts_views_line_exchange"];
         delete?: never;
@@ -105,13 +106,34 @@ export interface paths {
         put?: never;
         /**
          * Logout
-         * @description Global logout: revoke ALL tokens belonging to the current user.
+         * @description Global logout: revoke ALL tokens belonging to the current user, and clear the auth cookie.
          *
          *     This invalidates every session/device at once — not just the token presented
          *     in this request. Clients holding other tokens for this user will start
          *     receiving 401 and must log in again.
          */
         post: operations["apps_accounts_views_logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/csrf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Csrf
+         * @description Return a CSRF token (and set the ``csrftoken`` cookie). Cookie-authenticated unsafe requests
+         *     must echo it in ``X-CSRFToken``; Django rotates it on login, so refetch after a ``csrf_failed``.
+         */
+        get: operations["apps_accounts_views_csrf"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -350,9 +372,10 @@ export interface components {
             /** Celery */
             celery: boolean;
         };
-        /** BaseResponse[TokenResponse] */
-        BaseResponse_TokenResponse_: {
-            data: components["schemas"]["TokenResponse"] | null;
+        /** BaseResponse[NoneType] */
+        BaseResponse_NoneType_: {
+            /** Data */
+            data: null;
             error: components["schemas"]["ErrorResponse"] | null;
         };
         /**
@@ -369,21 +392,23 @@ export interface components {
             /** Reason */
             reason: string | null;
         };
-        /** TokenResponse */
-        TokenResponse: {
-            /** Token */
-            token: string;
-        };
         /** LineExchangeRequest */
         LineExchangeRequest: {
             /** Code */
             code: string;
         };
-        /** BaseResponse[NoneType] */
-        BaseResponse_NoneType_: {
-            /** Data */
-            data: null;
+        /** BaseResponse[CsrfResponse] */
+        BaseResponse_CsrfResponse_: {
+            data: components["schemas"]["CsrfResponse"] | null;
             error: components["schemas"]["ErrorResponse"] | null;
+        };
+        /** CsrfResponse */
+        CsrfResponse: {
+            /**
+             * Csrf Token
+             * @description 放在不安全方法(POST/PUT/PATCH/DELETE)的 X-CSRFToken header;同時會設 csrftoken cookie。
+             */
+            csrf_token: string;
         };
         /** BaseResponse[MeResponse] */
         BaseResponse_MeResponse_: {
@@ -718,7 +743,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BaseResponse_TokenResponse_"];
+                    "application/json": components["schemas"]["BaseResponse_NoneType_"];
                 };
             };
         };
@@ -739,6 +764,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BaseResponse_NoneType_"];
+                };
+            };
+        };
+    };
+    apps_accounts_views_csrf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseResponse_CsrfResponse_"];
                 };
             };
         };

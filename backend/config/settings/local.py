@@ -20,6 +20,9 @@ LOGGING["root"]["level"] = "DEBUG"  # type: ignore[index]  # noqa: F405
 # otherwise the pydantic dev-friendly defaults apply (Docker host + common
 # frontend dev ports) — no hardcoded override here so env config stays effective.
 CORS_ALLOW_ALL_ORIGINS = False
+# Plain-http dev: browsers reject Secure cookies and the __Host- prefix needs Secure.
+AUTH_COOKIE_NAME = "auth"
+AUTH_COOKIE_SECURE = False
 # Django 6.1+: MAILERS replaces the deprecated EMAIL_BACKEND/EMAIL_* settings.
 MAILERS = {"default": {"BACKEND": "django.core.mail.backends.console.EmailBackend"}}
 

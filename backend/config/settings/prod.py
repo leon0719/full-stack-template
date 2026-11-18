@@ -58,9 +58,7 @@ SECURE_CSP = {
     "form-action": [CSP.SELF],
 }
 
-# The API's own https origin(s) — used by the Django admin's CSRF check.
-# Distinct from CORS_ALLOWED_ORIGINS (which lists frontend origins).
-CSRF_TRUSTED_ORIGINS = settings.get_csrf_trusted_origins()
+# CSRF_TRUSTED_ORIGINS (API's own origin(s) + frontend CORS origins) is built in base.py — don't override it here.
 
 # Hashed + gzip'd static files (immutable cache headers via whitenoise).
 STORAGES = {

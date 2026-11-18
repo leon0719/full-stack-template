@@ -154,8 +154,9 @@ docker/            # Dockerfiles + compose files (dev / prod), db_backup/ sideca
 | ------ | ---------------------------------------- | ------ | --------------------------------------- |
 | GET    | `/accounts/line/login/`                  | —      | Starts the allauth LINE OAuth flow (redirects to LINE) |
 | GET    | `/accounts/line/login/callback/`         | —      | LINE OAuth callback; redirects to the frontend with a one-time exchange code |
-| POST   | `/auth/line/exchange`                    | —      | One-time exchange code → bearer token; rate-limited (10/m/IP) |
-| POST   | `/auth/logout`        | Bearer | Revokes all of the user's tokens        |
+| GET    | `/auth/csrf`                             | —      | CSRF token for `X-CSRFToken` (also sets the `csrftoken` cookie) |
+| POST   | `/auth/line/exchange`                    | CSRF   | One-time exchange code → HttpOnly auth cookie (no token in the body); rate-limited (10/m/IP) |
+| POST   | `/auth/logout`        | Bearer / cookie | Revokes all of the user's tokens, clears the cookie |
 | GET    | `/auth/me`            | Bearer | Current user profile + `roles`          |
 | GET    | `/articles`           | Bearer | Own articles; `?page=&page_size=&status=&q=` |
 | GET    | `/articles/export`    | Bearer | `?format=xlsx\|pdf\|zip` file download, same filters (10/m/user) |
@@ -169,8 +170,10 @@ docker/            # Dockerfiles + compose files (dev / prod), db_backup/ sideca
 | GET    | `/notifications/failed` | Bearer + `admin` role | Undelivered notifications     |
 | POST   | `/notifications/line/webhook` | LINE signature | LINE Messaging API webhook      |
 
-Auth uses an opaque bearer token: `Authorization: Bearer <token>`, issued via the LINE
-login exchange above (there is no username/password login).
+Auth uses an opaque token, accepted either as `Authorization: Bearer <token>` or (browsers) in the HttpOnly
+auth cookie set by the LINE login exchange above — cookie-authenticated POST/PUT/PATCH/DELETE must also send
+`X-CSRFToken` from `GET /auth/csrf` (403 `csrf_failed` otherwise). There is no username/password login and no
+endpoint that returns a token in a response body (tests mint one with `AuthService.issue_token`).
 
 See [`CLAUDE.md`](./CLAUDE.md) for architecture details, app layering conventions, and
 the checklist for adding a new app.

@@ -52,7 +52,7 @@ CD 只管後端；只改前端的 push 不會觸發（`paths` 過濾），前端
 | --- | --- | --- |
 | `CORS_ALLOWED_ORIGINS` | **前端**的對外 origin（CloudFront 網域或自訂網域,含 https://,不含路徑） | `https://app.your-domain.com` |
 | `ALLOWED_HOSTS` | **API** 對外域名 | `api.your-domain.com` |
-| `CSRF_TRUSTED_ORIGINS` | API 自己的 https origin（admin 用） | `https://api.your-domain.com` |
+| `CSRF_TRUSTED_ORIGINS` | API 自己的 https origin（admin 用）；`CORS_ALLOWED_ORIGINS` 的前端 origin 會自動併入，不用重複填 | `https://api.your-domain.com` |
 
 匯出端點（`GET /articles/export`）的檔名靠 `Content-Disposition`，後端已用 `CORS_EXPOSE_HEADERS`
 開放給前端 origin 讀取——不用額外設定，但若在 Caddy/nginx/CloudFront 前面改寫 CORS header，要保留它。

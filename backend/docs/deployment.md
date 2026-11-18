@@ -52,8 +52,8 @@ chmod 600 .env.prod        # 內含機密
 | `SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(50))"` 產生 | ≥ 50 字元，不可是 placeholder |
 | `DATABASE_URL` | `postgresql://user:pass@host:5432/db?sslmode=require` | 外部託管 DB 保留 `sslmode=require`；同機 socket/私網才移除 |
 | `ALLOWED_HOSTS` | `api.your-domain.com` | API 對外域名（逗號分隔可多個） |
-| `CORS_ALLOWED_ORIGINS` | `https://your-frontend.com` | 允許跨域呼叫的**前端** origin |
-| `CSRF_TRUSTED_ORIGINS` | `https://api.your-domain.com` | API **自己的** https origin（Django admin 的 CSRF 檢查用）；必須含 `https://` scheme |
+| `CORS_ALLOWED_ORIGINS` | `https://your-frontend.com` | 允許跨域呼叫的**前端** origin；同時會自動加進 CSRF 信任清單（瀏覽器帶 cookie 的寫入請求要過 Django 的 Origin 檢查） |
+| `CSRF_TRUSTED_ORIGINS` | `https://api.your-domain.com` | API **自己的** https origin（Django admin 的 CSRF 檢查用）；必須含 `https://` scheme。`CORS_ALLOWED_ORIGINS` 的前端 origin 會自動併入，**不用重複填** |
 | `CELERY_BROKER_URL` | `rediss://:pass@host:6380/0` | 生產 Redis（帶密碼；公網務必 TLS） |
 | `CACHE_URL` | `rediss://:pass@host:6380/1` | 與 broker 不同 DB index；throttle 計數器靠它 |
 | `LINE_LOGIN_CHANNEL_ID` | LINE Developers Console → Channel → Basic settings 的 Channel ID | LINE Login channel（登入唯一入口，沒有帳密登入） |

@@ -254,7 +254,9 @@ def test_get_login_redirect_url_issues_token_and_exchange_code(user, rf, setting
 
 
 @pytest.mark.integration
-def test_line_exchange_returns_token(user):
+def test_line_exchange_sets_cookie_no_token_in_body(user):
+    from django.conf import settings
+
     from apps.accounts.services import AuthService
 
     token = AuthService.issue_token(user)
@@ -263,7 +265,30 @@ def test_line_exchange_returns_token(user):
     resp = Client().post("/auth/line/exchange", data={"code": code}, content_type="application/json")
 
     assert resp.status_code == 200
-    assert resp.json()["data"]["token"] == token
+    assert resp.json()["data"] is None
+    assert token not in resp.content.decode()
+    cookie = resp.cookies[settings.AUTH_COOKIE_NAME]
+    assert cookie.value == token
+    assert cookie["httponly"]
+
+
+@pytest.mark.integration
+def test_line_exchange_requires_csrf(user):
+    from apps.accounts.services import AuthService
+
+    code = AuthService.issue_line_exchange_code(AuthService.issue_token(user))
+    c = Client(enforce_csrf_checks=True)
+
+    resp = c.post("/auth/line/exchange", data={"code": code}, content_type="application/json")
+    assert resp.status_code == 403
+    assert resp.json()["error"]["reason"] == "csrf_failed"
+
+    # A CSRF failure must not burn the one-time code: the retry with a token succeeds.
+    csrf = c.get("/auth/csrf").json()["data"]["csrf_token"]
+    resp = c.post(
+        "/auth/line/exchange", data={"code": code}, content_type="application/json", headers={"X-CSRFToken": csrf}
+    )
+    assert resp.status_code == 200
 
 
 @pytest.mark.integration
@@ -446,3 +471,124 @@ def test_logout_is_audited(user, auth_headers):
     entry = AuditLog.objects.get(action=AuditLog.Action.LOGOUT)
     assert entry.actor_id == user.id
     assert entry.metadata["tokens_revoked"] == 1
+
+
+# ---------------------------------------------------------------------------
+# HttpOnly cookie auth + CSRF (BearerAuth falls back to the auth cookie)
+# ---------------------------------------------------------------------------
+def _cookie_client(raw, enforce=True):
+    """Client carrying the auth cookie; Django's test Client skips CSRF unless asked, so enforce it."""
+    from django.conf import settings
+
+    c = Client(enforce_csrf_checks=enforce)
+    c.cookies[settings.AUTH_COOKIE_NAME] = raw
+    return c
+
+
+@pytest.mark.integration
+def test_csrf_endpoint_returns_token_and_sets_cookie(db):
+    resp = Client().get("/auth/csrf")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["csrf_token"]
+    assert "csrftoken" in resp.cookies
+
+
+@pytest.mark.integration
+def test_cookie_auth_get_me_without_csrf(user):
+    from apps.accounts.services import AuthService
+
+    raw = AuthService.issue_token(user)
+    assert _cookie_client(raw).get("/auth/me").json()["data"]["username"] == "alice"
+
+
+@pytest.mark.integration
+def test_cookie_auth_post_without_csrf_is_403_csrf_failed(user):
+    from apps.accounts.services import AuthService
+
+    raw = AuthService.issue_token(user)
+    resp = _cookie_client(raw).post("/auth/logout")
+    assert resp.status_code == 403
+    assert resp.json()["error"]["reason"] == "csrf_failed"
+
+
+@pytest.mark.integration
+def test_cookie_auth_post_with_csrf_succeeds(user):
+    from apps.accounts.services import AuthService
+
+    c = _cookie_client(AuthService.issue_token(user))
+    token = c.get("/auth/csrf").json()["data"]["csrf_token"]
+    assert c.post("/auth/logout", headers={"X-CSRFToken": token}).status_code == 200
+
+
+@pytest.mark.integration
+def test_cookie_logout_clears_cookie_and_revokes_token(user):
+    from django.conf import settings
+
+    from apps.accounts.services import AuthService
+
+    raw = AuthService.issue_token(user)
+    c = _cookie_client(raw)
+    token = c.get("/auth/csrf").json()["data"]["csrf_token"]
+
+    resp = c.post("/auth/logout", headers={"X-CSRFToken": token})
+
+    assert resp.status_code == 200
+    assert resp.cookies[settings.AUTH_COOKIE_NAME]["max-age"] == 0
+    # A replayed copy of the old cookie is dead server-side, not just deleted client-side.
+    assert _cookie_client(raw).get("/auth/me").status_code == 401
+
+
+@pytest.mark.integration
+def test_anonymous_post_without_cookie_is_401_not_403(db):
+    resp = Client(enforce_csrf_checks=True).post("/auth/logout")
+    assert resp.status_code == 401
+
+
+@pytest.mark.integration
+def test_bearer_header_wins_over_cookie_and_skips_csrf(user, auth_headers):
+    c = _cookie_client("garbage")
+    assert c.post("/auth/logout", headers=auth_headers).status_code == 200
+
+
+@pytest.mark.integration
+def test_expired_cookie_token_is_401(user):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.accounts.models import AuthToken
+    from apps.core.security import generate_token
+
+    raw, digest = generate_token()
+    AuthToken.objects.create(user=user, digest=digest, expiry=timezone.now() - timedelta(minutes=1))
+
+    assert _cookie_client(raw).get("/auth/me").status_code == 401
+
+
+@pytest.mark.unit
+def test_auth_cookie_helpers_set_and_clear_attributes():
+    from django.conf import settings
+    from django.http import HttpResponse
+
+    from apps.accounts.authentication import clear_auth_cookie, set_auth_cookie
+
+    resp = HttpResponse()
+    set_auth_cookie(resp, "raw-token")
+    cookie = resp.cookies[settings.AUTH_COOKIE_NAME]
+    assert cookie.value == "raw-token"
+    assert cookie["httponly"] is True
+    assert cookie["samesite"] == "Lax"
+    assert cookie["path"] == "/"
+    assert not cookie["domain"]
+    assert cookie["max-age"] == settings.AUTH_TOKEN_TTL_DAYS * 86400
+    assert bool(cookie["secure"]) is settings.AUTH_COOKIE_SECURE
+
+    clear_auth_cookie(resp)
+    assert resp.cookies[settings.AUTH_COOKIE_NAME]["max-age"] == 0
+
+
+@pytest.mark.unit
+def test_frontend_origin_is_csrf_trusted():
+    from django.conf import settings
+
+    assert set(settings.CORS_ALLOWED_ORIGINS) <= set(settings.CSRF_TRUSTED_ORIGINS)

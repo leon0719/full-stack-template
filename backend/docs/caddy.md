@@ -52,6 +52,7 @@ DOMAIN=api.your-domain.com
 
 # Django 端也要認得同一個域名
 ALLOWED_HOSTS=api.your-domain.com
+# 只填 API 自己的 origin；前端 origin 由 CORS_ALLOWED_ORIGINS 自動併入
 CSRF_TRUSTED_ORIGINS=https://api.your-domain.com
 
 # caddy 從 compose bridge 網段連進 api 容器（.env.prod.example 預設值即是）
@@ -124,6 +125,7 @@ Allow policy（如 Include → Emails 填自己的信箱，登入走 one-time PI
 | 502 Bad Gateway | api 容器不健康 | `make prod-logs` 看 api 是否啟動失敗（Settings 驗證錯誤會寫明原因） |
 | 400 Bad Request (DisallowedHost) | `ALLOWED_HOSTS` 沒含對外域名 | 加上 `api.your-domain.com` 後重啟 |
 | admin 登入 403 CSRF | `CSRF_TRUSTED_ORIGINS` 沒設 | 填 `https://api.your-domain.com` |
+| 前端寫入請求 403 `csrf_failed`（cookie 登入） | 前端 origin 不在 `CORS_ALLOWED_ORIGINS`（它同時決定 CSRF 信任），或前端沒帶 `X-CSRFToken` | 確認 `CORS_ALLOWED_ORIGINS` 含前端 `https://` origin；前端先 `GET /auth/csrf` |
 | api log 的 client IP 是 Cloudflare IP | `NINJA_NUM_PROXIES` 不是 2 或 `trusted_proxies` 沒生效 | 見步驟三第 3 點 |
 | admin allowlist 擋不住人 | 範例用了 `remote_ip` | 改用 `client_ip` matcher |
 

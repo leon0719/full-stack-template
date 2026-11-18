@@ -32,6 +32,7 @@ class ErrorCode(StrEnum):
     EXPORT_TOO_LARGE = "export_too_large"
     INVALID_SIGNATURE = "invalid_signature"
     JOB_NOT_CANCELLABLE = "job_not_cancellable"
+    CSRF_FAILED = "csrf_failed"
 
 
 class AppError(HttpError):

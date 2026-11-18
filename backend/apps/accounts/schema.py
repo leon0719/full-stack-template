@@ -4,8 +4,10 @@ from pydantic import Field
 from apps.accounts.roles import Role
 
 
-class TokenResponse(Schema):
-    token: str
+class CsrfResponse(Schema):
+    csrf_token: str = Field(
+        ..., description="放在不安全方法(POST/PUT/PATCH/DELETE)的 X-CSRFToken header;同時會設 csrftoken cookie。"
+    )
 
 
 class LineExchangeRequest(Schema):
