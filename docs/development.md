@@ -155,7 +155,8 @@ Secure cookie），經 https tunnel 同源使用沒有問題；正式環境才�
 LINE Console 的 Callback URL）；前端 `.env.development.local` 只需設一次。
 若要固定網址（省去每次更新的麻煩），改用 cloudflared 的具名 tunnel（需要一個
 掛到 Cloudflare 的網域）：`cloudflared tunnel login && cloudflared tunnel create <name>`，
-之後網址固定，只需設定一次。
+之後網址固定，只需設定一次。具名 tunnel 的 hostname 不在 `.trycloudflare.com` 底下，要把它加進
+`frontend/vite.config.ts` 的 `server.allowedHosts`，否則 Vite 會回 403 `Blocked request`。
 
 測完請把 `backend/.env.local` 的上述三項與前端 `.env.development.local` 還原；日常開發
 （`localhost:5173` → `localhost:8000` 直連）完全不經過 proxy，不受影響。
