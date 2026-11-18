@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetCsrfToken } from "./client";
 import { type Job, type UseJobPollingOptions, useJobPolling } from "./use-job-polling";
 
 function job(status: Job["status"], progress: number | null = null): Job<{ rows: number }> {
@@ -29,7 +30,10 @@ const ok = (body: unknown) =>
   new Response(JSON.stringify({ data: body, error: null }), { status: 200 });
 
 describe("useJobPolling", () => {
-  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    resetCsrfToken();
+  });
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -80,6 +84,7 @@ describe("useJobPolling", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(ok(job("running", 10)))
+      .mockResolvedValueOnce(ok({ csrf_token: "csrf-1" })) // POST 前先取 CSRF token
       .mockResolvedValueOnce(ok(null))
       .mockResolvedValueOnce(ok(job("cancelled", 10)));
     const { result } = setup("j1", { intervalMs: 60_000 });
@@ -88,7 +93,7 @@ describe("useJobPolling", () => {
     await act(async () => {
       await result.current.cancel();
     });
-    const [url, init] = fetchSpy.mock.calls[1];
+    const [url, init] = fetchSpy.mock.calls[2];
     expect(url).toBe("/jobs/j1/cancel");
     expect((init as RequestInit).method).toBe("POST");
     await waitFor(() => expect(result.current.job?.status).toBe("cancelled"));

@@ -5,13 +5,12 @@ import { AdminPage } from "./ui/admin-page";
 
 describe("AdminPage", () => {
   beforeEach(() => {
-    useAuthStore.setState({ user: null, token: null, status: "idle" });
+    useAuthStore.setState({ user: null, status: "idle" });
   });
 
   it("shows admin content for an admin user", () => {
     useAuthStore.setState({
       user: { id: "1", name: "admin", roles: ["admin"] },
-      token: "t",
       status: "authenticated",
     });
     render(<AdminPage />);
@@ -21,7 +20,6 @@ describe("AdminPage", () => {
   it("shows 403 for a non-admin user", () => {
     useAuthStore.setState({
       user: { id: "2", name: "user", roles: ["user"] },
-      token: "t",
       status: "authenticated",
     });
     render(<AdminPage />);

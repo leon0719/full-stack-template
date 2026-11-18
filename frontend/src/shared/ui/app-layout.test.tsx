@@ -13,7 +13,7 @@ import { AppLayout } from "./app-layout";
 
 describe("AppLayout", () => {
   beforeEach(() => {
-    useAuthStore.setState({ user: null, token: null, status: "unauthenticated" });
+    useAuthStore.setState({ user: null, status: "unauthenticated" });
   });
 
   it("renders the outlet", () => {
@@ -29,7 +29,6 @@ describe("AppLayout", () => {
   it("shows the user name and a logout link when authenticated", () => {
     useAuthStore.setState({
       user: { id: "1", name: "admin", roles: ["admin"] },
-      token: "t",
       status: "authenticated",
     });
     render(<AppLayout />);

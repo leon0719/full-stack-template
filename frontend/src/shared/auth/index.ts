@@ -5,7 +5,6 @@ export { usePermission } from "./lib/use-permission";
 export { initAuth, setAuthAdapter, useAuthStore } from "./model/auth-store";
 export type {
   AuthAdapter,
-  AuthSession,
   AuthStatus,
   Role,
   User,

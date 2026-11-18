@@ -8,7 +8,6 @@ describe("LogoutPage", () => {
   beforeEach(() => {
     useAuthStore.setState({
       user: { id: "1", name: "u", roles: ["user"] },
-      token: "tok",
       status: "authenticated",
     });
   });

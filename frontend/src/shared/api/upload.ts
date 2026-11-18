@@ -1,4 +1,4 @@
-import { parseText, resolveUrl, settle, tokenFor } from "./client";
+import { getCsrfToken, isApiOrigin, parseText, resolveUrl, settle } from "./client";
 
 export interface UploadProgress {
   loaded: number;
@@ -20,7 +20,8 @@ export interface UploadOptions {
  *
  * 為什麼不用 fetch:fetch 沒有上傳進度事件。用 ReadableStream 當 request body 自己數 bytes
  * 需要 `duplex: "half"` + HTTP/2,而且 Safari / Firefox 不支援串流上傳,所以這裡用 XHR 的
- * `upload.onprogress`。token、錯誤(ApiError、自家 401 清 session)、envelope 解包規則與 apiPost 相同。
+ * `upload.onprogress`。cookie + CSRF、錯誤(ApiError、自家 401 清 session)、envelope 解包規則與 apiPost 相同
+ * (唯一差別:不會在 csrf_failed 時自動重送,只會丟掉快取 token,呼叫端再試一次即可)。
  *
  * ```ts
  * const form = new FormData();
@@ -32,13 +33,17 @@ export interface UploadOptions {
  * ```
  * 取消:`signal` abort 後 Promise 以 `DOMException("AbortError")` reject。
  */
-export function apiUpload<T>(
+export async function apiUpload<T>(
   path: string,
   body: FormData,
   options: UploadOptions = {},
 ): Promise<T> {
   const method = options.method ?? "POST";
   const url = resolveUrl(path);
+  // 上傳都是寫入:自家 API 要先拿 CSRF token(其他 host 不 await,維持同步建立 XHR)。
+  // ponytail: csrf_failed 不像 apiPost 自動重送(XHR 重送要重新處理進度與 signal);
+  // 有需要再包一層重試,settle 已先丟掉快取 token,手動重試即可成功。
+  const csrf = isApiOrigin(url) ? await getCsrfToken() : null;
 
   return new Promise<T>((resolve, reject) => {
     const abortError = () => new DOMException("Upload aborted", "AbortError");
@@ -52,8 +57,10 @@ export function apiUpload<T>(
     for (const [name, value] of Object.entries(options.headers ?? {})) {
       xhr.setRequestHeader(name, value);
     }
-    const token = tokenFor(url);
-    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    if (csrf) {
+      xhr.withCredentials = true;
+      xhr.setRequestHeader("X-CSRFToken", csrf);
+    }
 
     const onAbort = () => xhr.abort();
     options.signal?.addEventListener("abort", onAbort, { once: true });

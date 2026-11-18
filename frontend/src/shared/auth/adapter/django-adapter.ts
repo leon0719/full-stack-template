@@ -1,6 +1,5 @@
-import type { components } from "@/shared/api";
+import { type components, getCsrfToken, resetCsrfToken } from "@/shared/api";
 import { env } from "@/shared/config";
-import { tokenStorage } from "../lib/token-storage";
 import type { AuthAdapter, User } from "../model/types";
 
 // 型別由後端 OpenAPI 產生(`make gen-api`),不要手寫
@@ -20,7 +19,9 @@ function toUser(me: MeResponse): User {
 }
 
 // 後端回 BaseResponse:成功 { data, error: null }、失敗 { data: null, error: { code, message, reason } }。
-// 不走 shared/api 的 client(它 import shared/auth,會循環依賴),這裡自己解 envelope。
+// 這裡用原生 fetch 自己解 envelope:shared/api 的 client 失敗時會 clear() auth store,
+// 登入流程要自己決定怎麼處理 401。(CSRF token 仍共用 client 的快取;函式只在呼叫時才用到,
+// 所以 client ↔ auth 的 import 循環在載入階段是安全的。)
 async function readData<T>(res: Response): Promise<T> {
   return ((await res.json()) as { data: T }).data;
 }
@@ -35,66 +36,68 @@ async function extractErrorMessage(res: Response, fallback: string): Promise<str
   return fallback;
 }
 
-async function fetchMe(token: string): Promise<User | null> {
-  const res = await fetch(`${env.apiBaseUrl}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+async function isCsrfFailure(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  try {
+    const payload = (await res.clone().json()) as { error?: { reason?: unknown } | null };
+    return payload?.error?.reason === "csrf_failed";
+  } catch {
+    return false;
+  }
+}
+
+// cookie 認證的寫入要帶 X-CSRFToken;token 過期或被輪替(csrf_failed)時重抓後只重送一次,
+// 否則 logout 會悄悄失敗、cookie 還在。
+async function post(path: string, body?: unknown): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${env.apiBaseUrl}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": await getCsrfToken() },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (attempt === 0 && (await isCsrfFailure(res))) {
+      resetCsrfToken();
+      continue;
+    }
+    return res;
+  }
+}
+
+async function fetchMe(): Promise<User | null> {
+  const res = await fetch(`${env.apiBaseUrl}/auth/me`, { credentials: "include" });
   if (res.status === 401) return null;
   if (!res.ok)
     throw new Error(await extractErrorMessage(res, `GET /auth/me failed with ${res.status}`));
   return toUser(await readData<MeResponse>(res));
 }
 
-// 串接 backend apps/accounts 的 opaque bearer token 認證。登入只能透過 LINE:
+// 串接 backend apps/accounts 的 HttpOnly cookie 認證。登入只能透過 LINE:
 // getLineLoginUrl() 產生整頁導轉連結;LINE 完成授權後,後端把瀏覽器導回
-// /login/callback?code=...,該頁呼叫 completeLineLogin() 把 code 換成 token,
-// 再沿用既有兩段式流程(存 token → 打 /auth/me 取得使用者資料)。
+// /login/callback?code=...,該頁呼叫 completeLineLogin() 把 code 換成 cookie
+// (POST /auth/line/exchange,後端以 Set-Cookie 發憑證,body 不含 token),
+// 再打 /auth/me 取得使用者資料。前端不碰也不存任何 token。
 export const djangoAuthAdapter: AuthAdapter = {
   getLineLoginUrl() {
     return `${env.apiBaseUrl}/accounts/line/login/?process=login`;
   },
 
   async completeLineLogin(code) {
-    const res = await fetch(`${env.apiBaseUrl}/auth/line/exchange`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    });
+    const res = await post("/auth/line/exchange", { code });
     if (!res.ok) {
       throw new Error(
         await extractErrorMessage(res, `POST /auth/line/exchange failed with ${res.status}`),
       );
     }
-    const { token } = await readData<{ token: string }>(res);
-    const user = await fetchMe(token);
-    if (!user) throw new Error("Login succeeded but the issued token was rejected");
-    tokenStorage.set(token);
-    return { user, token };
+    const user = await fetchMe();
+    if (!user) throw new Error("Login succeeded but the session cookie was not accepted");
+    return user;
   },
 
   async logout() {
-    const token = tokenStorage.get();
-    try {
-      if (token) {
-        await fetch(`${env.apiBaseUrl}/auth/logout`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      }
-    } finally {
-      // 就算 server 端撤銷失敗也要清本地 session,避免卡在登不出的狀態
-      tokenStorage.clear();
-    }
+    // 後端清 cookie 並撤銷 token;網路失敗讓 rejection 往上冒(cookie 沒清,假裝登出會騙到使用者)
+    await post("/auth/logout");
   },
 
-  async me() {
-    const token = tokenStorage.get();
-    if (!token) return null;
-    const user = await fetchMe(token);
-    if (!user) {
-      tokenStorage.clear();
-      return null;
-    }
-    return { user, token };
-  },
+  me: fetchMe,
 };

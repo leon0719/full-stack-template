@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { fakeAuthAdapter } from "../adapter/fake-adapter";
-import { tokenStorage } from "../lib/token-storage";
 import type { AuthAdapter, AuthStatus, User } from "./types";
 
 let adapter: AuthAdapter = fakeAuthAdapter;
@@ -20,7 +19,6 @@ function assertAdapterSafeForProd(): void {
 
 interface AuthState {
   user: User | null;
-  token: string | null;
   status: AuthStatus;
   completeLineLogin: (code: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -47,42 +45,36 @@ export function getLineLoginUrl(): string {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  token: null,
   status: "idle",
   completeLineLogin: async (code) => {
     assertAdapterSafeForProd();
     set({ status: "loading" });
     try {
-      const { user, token } = await adapter.completeLineLogin(code);
-      set({ user, token, status: "authenticated" });
+      const user = await adapter.completeLineLogin(code);
+      set({ user, status: "authenticated" });
     } catch (error) {
-      set({ user: null, token: null, status: "unauthenticated" });
+      set({ user: null, status: "unauthenticated" });
       throw error;
     }
   },
   logout: async () => {
     await adapter.logout();
-    set({ user: null, token: null, status: "unauthenticated" });
+    set({ user: null, status: "unauthenticated" });
   },
   clear: () => {
-    tokenStorage.clear();
-    set({ user: null, token: null, status: "unauthenticated" });
+    set({ user: null, status: "unauthenticated" });
   },
   init: async () => {
     assertAdapterSafeForProd();
     set({ status: "loading" });
     // me() 失敗(網路瞬斷、後端 5xx)視同未登入,不可讓 rejection 往上冒:
     // initAuth 會快取這個 promise,一旦 reject 所有 route 的 beforeLoad 都會永久炸掉。
-    let session: Awaited<ReturnType<AuthAdapter["me"]>> = null;
+    let user: User | null = null;
     try {
-      session = await adapter.me();
+      user = await adapter.me();
     } catch {
-      session = null;
+      user = null;
     }
-    if (session) {
-      set({ user: session.user, token: session.token, status: "authenticated" });
-    } else {
-      set({ user: null, token: null, status: "unauthenticated" });
-    }
+    set(user ? { user, status: "authenticated" } : { user: null, status: "unauthenticated" });
   },
 }));

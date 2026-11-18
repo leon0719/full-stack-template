@@ -15,16 +15,13 @@ import { LoginCallbackPage } from "./ui/login-callback-page";
 describe("LoginCallbackPage", () => {
   beforeEach(() => {
     navigate.mockReset();
-    useAuthStore.setState({ user: null, token: null, status: "idle" });
+    useAuthStore.setState({ user: null, status: "idle" });
   });
 
   it("completes the LINE login and navigates home on success", async () => {
     setAuthAdapter({
       getLineLoginUrl: () => "",
-      completeLineLogin: vi.fn().mockResolvedValue({
-        user: { id: "1", name: "u", roles: ["user"] },
-        token: "tok",
-      }),
+      completeLineLogin: vi.fn().mockResolvedValue({ id: "1", name: "u", roles: ["user"] }),
       logout: vi.fn(),
       me: vi.fn(),
     });
@@ -33,6 +30,7 @@ describe("LoginCallbackPage", () => {
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/" }));
     expect(useAuthStore.getState().status).toBe("authenticated");
+    expect(useAuthStore.getState().user).toEqual({ id: "1", name: "u", roles: ["user"] });
   });
 
   it("shows an error message when the exchange fails", async () => {

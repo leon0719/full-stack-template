@@ -45,7 +45,7 @@ src/
 分層鐵律與下沉時機見 `CLAUDE.md`。
 
 > **FSD 偏離說明**：`shared/auth` 並非 `entities/`，因為它同時被 `app`（router guard）與
-> `shared/api`（token 攔截器）消費；放最底層才能讓「只能上層 import 下層」的鐵律成立。
+> `shared/api`（cookie / 401 處理）消費；放最底層才能讓「只能上層 import 下層」的鐵律成立。
 
 ## 起一個新專案
 
@@ -56,31 +56,23 @@ src/
 
 ## 接真實後端（取代 fake adapter）
 
-AuthAdapter 負責 token 的持久化（store 只在記憶體保存 state.token）；自訂 adapter 必須在 login 時 persist、logout 時清除，me 依持久化的 token 還原 session。
+登入憑證是後端種的 HttpOnly cookie，前端不碰也不存任何 token：`completeLineLogin(code)` 回傳 `User`（後端以 Set-Cookie 發憑證），`logout` 呼叫後端清 cookie，`me` 打後端（瀏覽器自動帶 cookie）、未登入回 `null`。
+API origin 的請求由 `shared/api` 自動帶 `credentials: "include"`，寫入請求另外帶 `X-CSRFToken`（細節見 `docs/platform.md`）。本專案的實作見 `src/shared/auth/adapter/django-adapter.ts`。
 
 ```ts
-import { type AuthAdapter, type AuthSession, setAuthAdapter, tokenStorage } from "@/shared/auth";
+import { type AuthAdapter, setAuthAdapter, type User } from "@/shared/auth";
 import { apiGet, apiPost } from "@/shared/api";
 
 const realAdapter: AuthAdapter = {
-  login: async (c) => {
-    const session = await apiPost<AuthSession>("/auth/login", c); // 後端回傳 { user, token }
-    tokenStorage.set(session.token); // 持久化 token，供下次 me() 還原
-    return session;
+  getLineLoginUrl: () => "https://api.example.com/accounts/line/login/?process=login", // 整頁導轉
+  completeLineLogin: async (code) => {
+    await apiPost("/auth/line/exchange", { code }); // 後端以 Set-Cookie 發憑證，body 不含 token
+    return apiGet<User>("/auth/me"); // 後端欄位要自己對應成前端 User（本專案見 django-adapter.ts 的 toUser）
   },
   logout: async () => {
-    tokenStorage.clear(); // 清除持久化 token
-    await apiPost("/auth/logout");
+    await apiPost("/auth/logout"); // 後端清 cookie
   },
-  me: async () => {
-    const token = tokenStorage.get();
-    if (!token) return null;
-    // 冷載入時 state.token 尚未設定，需明確帶入 token
-    const user = await apiGet<AuthSession["user"]>("/auth/me", {
-      headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => null);
-    return user ? { user, token } : null;
-  },
+  me: () => apiGet<User>("/auth/me").catch(() => null), // 401 = 未登入
 };
 setAuthAdapter(realAdapter); // 在 app 啟動時呼叫一次
 ```

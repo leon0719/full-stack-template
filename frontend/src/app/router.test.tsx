@@ -36,7 +36,7 @@ describe("router", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", makeStorage());
     resetAuthForTests();
-    useAuthStore.setState({ user: null, token: null, status: "idle" });
+    useAuthStore.setState({ user: null, status: "idle" });
   });
 
   it("registers the login and admin routes", () => {
@@ -60,22 +60,22 @@ describe("router", () => {
   });
 
   it("renders a 404 page for unknown paths when authenticated", async () => {
-    localStorage.setItem("auth.token", "fake-token-user");
+    localStorage.setItem("auth.fake-user", "user");
     const { findByText } = renderAt("/does-not-exist");
     expect(await findByText(/404/)).toBeInTheDocument();
   });
 
   it("redirects an authenticated visitor away from /login", async () => {
-    localStorage.setItem("auth.token", "fake-token-user");
+    localStorage.setItem("auth.fake-user", "user");
     const { testRouter } = renderAt("/login");
     await waitFor(() => {
       expect(testRouter.state.location.pathname).toBe("/");
     });
   });
 
-  it("lets a cold-loaded session reach /admin once restored from storage", async () => {
-    // 模擬硬重新整理:localStorage 有 token,但 store 尚未 init
-    localStorage.setItem("auth.token", "fake-token-admin");
+  it("lets a cold-loaded session reach /admin once the session is restored", async () => {
+    // 模擬硬重新整理:fake adapter 記得帳號,但 store 尚未 init
+    localStorage.setItem("auth.fake-user", "admin");
     const { testRouter } = renderAt("/admin");
     await waitFor(() => {
       expect(testRouter.state.location.pathname).toBe("/admin");

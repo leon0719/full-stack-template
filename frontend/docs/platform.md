@@ -11,17 +11,35 @@ Everyday usage rules are in `CLAUDE.md`; this file covers the internals and the 
 - Hard route guard: in `createRoute`'s `beforeLoad`, first `await initAuth()` (the session-ready promise —
   cold loads and deep links wait for session restore), then check `useAuthStore.getState().status` and
   `throw redirect(...)`.
+- `AuthAdapter` = `{ getLineLoginUrl(): string; completeLineLogin(code): Promise<User>; logout(): Promise<void>;
+  me(): Promise<User | null> }` (`setAuthAdapter(yourAdapter)`; store, guards, and interceptors stay untouched).
+  There is no password login: sign-in is LINE only.
 - This project's adapter is `djangoAuthAdapter` (`shared/auth/adapter/django-adapter.ts`: LINE login →
-  exchange code → token), set in `main.tsx` via `setAuthAdapter`. It unwraps the `BaseResponse` envelope
-  itself — it cannot use the `shared/api` client (circular dependency).
-- Prod fail-fast: under `import.meta.env.PROD`, `login/init` throw if the adapter is still `fakeAuthAdapter`.
-- Token persistence belongs to the `AuthAdapter` (persist on login, clear on logout, `me` restores the
-  session from the persisted token); the store keeps `state.token` in memory only. `tokenStorage` is an
-  auth internal and not part of the public API.
-- Security: the token lives in localStorage, so any XSS can steal it. For production prefer an httpOnly
-  cookie issued by the backend. A CSP `<meta>` is injected at build time (`cspMeta` in `vite.config.ts`;
-  `connect-src` comes from `VITE_API_BASE_URL` / `VITE_SENTRY_DSN` — add any new third-party origin there).
-  HSTS / `X-Frame-Options` / `nosniff` must come from the host as response headers (meta can't set them).
+  exchange code → HttpOnly cookie → `GET /auth/me`), set in `main.tsx` via `setAuthAdapter`. It uses raw
+  `fetch` and unwraps the `BaseResponse` envelope itself (the `shared/api` client clears the auth store on any
+  401, which login must decide for itself), but every call sends `credentials: "include"`, and the two writes
+  (`POST /auth/line/exchange`, `POST /auth/logout`) send `X-CSRFToken` from the client's cached
+  `getCsrfToken()` and refetch + retry once on `csrf_failed` (otherwise a stale token would make logout fail
+  silently and leave the cookie alive). It imports `getCsrfToken` / `resetCsrfToken` from `@/shared/api`,
+  so `shared/auth` ↔ `shared/api` is a runtime import cycle; it is safe because neither side calls the other
+  at module load, only inside functions — keep it that way.
+- Prod fail-fast: under `import.meta.env.PROD`, `completeLineLogin/init` throw if the adapter is still `fakeAuthAdapter`.
+- No token in the browser: the session is an HttpOnly cookie set by the backend on `POST /auth/line/exchange`
+  (the response body is `{"data": null}`) and cleared by `POST /auth/logout`, so JavaScript can't read it and an
+  XSS can't steal it. The store holds only `user` / `status` in memory; `me()` restores the session by calling
+  the backend (cookie sent automatically) and `null` means logged out. Nothing credential-like goes into
+  localStorage. Only the template's `fakeAuthAdapter` remembers the logged-in account *name*
+  (`localStorage["auth.fake-user"]`) so a refresh keeps the demo session; it is not a credential and the
+  adapter fails fast in prod.
+- Security: a cookie makes CSRF the browser-side risk, so every unsafe request to the API origin also sends
+  `X-CSRFToken` (see API client below); the cookie is `SameSite=Lax`. A CSP `<meta>` is injected at build time
+  (`cspMeta` in `vite.config.ts`; `connect-src` comes from `VITE_API_BASE_URL` / `VITE_SENTRY_DSN` — add any
+  new third-party origin there). HSTS / `X-Frame-Options` / `nosniff` must come from the host as response
+  headers (meta can't set them). Cross-origin deployments need the backend to allow credentials
+  (`CORS_ALLOW_CREDENTIALS`) and trust the frontend origin for CSRF (`CSRF_TRUSTED_ORIGINS`, which includes
+  `CORS_ALLOWED_ORIGINS`).
+- Fake accounts (template demo, fail-fast in prod): LINE codes `fake-code-admin` (admin + user roles) and
+  `fake-code-user` (user role); the demo login link uses the latter.
 - Frontend guards (`beforeLoad` / `RequireRole`) are UX only, not an authorization boundary; the backend
   must authorize independently.
 
@@ -35,8 +53,18 @@ Everyday usage rules are in `CLAUDE.md`; this file covers the internals and the 
 - Backend contract `BaseResponse` (same for the Django Ninja / FastAPI / .NET templates): success
   `{ data, error: null }`, failure `{ data: null, error: { code: <HTTP status>, message, reason } }`.
   The client unwraps `data` for responses from our own API, so `T` is the inner type.
-- `Authorization: Bearer <token>` is attached only for the API origin (`VITE_API_BASE_URL`, same-origin
-  when unset); an absolute URL to another host gets no token (prevents credential leaks).
+- Cookie auth, API origin only (`VITE_API_BASE_URL`, same-origin when unset): requests to it use
+  `credentials: "include"`; an absolute URL to another host gets neither the cookie nor CSRF (prevents
+  credential leaks). There is no `Authorization` header.
+- CSRF: unsafe methods (POST/PUT/PATCH/DELETE) to the API origin send `X-CSRFToken`. `getCsrfToken()` fetches
+  `GET /auth/csrf` (`CSRF_PATH`, `credentials: "include"`, reads `data.csrf_token`; this also sets the
+  `csrftoken` cookie) once and caches the promise in memory; a failed fetch is not cached and surfaces as
+  `ApiError` (or `TypeError` on a network failure) before the write is sent. A 403 with
+  `reason: "csrf_failed"` (token rotated, or stale) → `resetCsrfToken()`, refetch, and retry
+  **exactly once**; a second `csrf_failed` throws `ApiError`. The backend checks CSRF before the session, so
+  an expired/revoked cookie on a write shows up as `csrf_failed` first, then 401 on the retry (store cleared,
+  no more retries). `apiUpload` (XHR) sends the same headers + `withCredentials` but does not retry; it only
+  drops the cached token so the next call refetches.
 - Non-2xx throws `ApiError` (`status` + `reason` + `message` + `payload`); a same-origin 401 clears the session.
 
 ### 上傳 / 下載 / 長任務 / SSE（皆從 `@/shared/api` 匯入）
@@ -44,8 +72,8 @@ Everyday usage rules are in `CLAUDE.md`; this file covers the internals and the 
 - **FormData 上傳**：`apiPost(path, formData)`。body 是 `FormData` / `Blob` / `URLSearchParams` / `ArrayBuffer`
   時原樣送出、不設 `Content-Type`（multipart boundary 交給瀏覽器）；其他值才 `JSON.stringify` 並標 JSON。
 - **上傳進度**：`apiUpload<T>(path, formData, { onProgress, signal, method })`，XHR 實作。fetch 沒有上傳進度事件
-  （串流 request body 需 `duplex: "half"` + HTTP/2，Safari / Firefox 不支援），所以只有這一支走 XHR；token、
-  `ApiError`、401 清 session、envelope 解包規則與 `apiPost` 共用 `client.ts` 的 `settle()`。取消用
+  （串流 request body 需 `duplex: "half"` + HTTP/2，Safari / Firefox 不支援），所以只有這一支走 XHR；cookie + CSRF header、
+  `ApiError`、401 清 session、envelope 解包規則與 `apiPost` 共用 `client.ts` 的 `settle()`（不自動重送 `csrf_failed`）。取消用
   `AbortController`，reject `AbortError`；網路錯誤 reject `TypeError`（與 fetch 一致）。
 - **下載匯出檔**：`apiDownload(path, { method?, body? })` → `{ blob, filename }`，再 `downloadBlob(blob, filename ?? "預設.xlsx")`
   （`@/shared/lib`）。檔名由 `parseContentDispositionFilename` 解析，優先 `filename*=UTF-8''…`（RFC 5987，中文檔名），
@@ -68,8 +96,12 @@ Everyday usage rules are in `CLAUDE.md`; this file covers the internals and the 
     invalidate 會合併去重。
   - 斷線一律關掉、自己重連：指數退避 3s→60s × jitter 0.5–1（`reconnectDelay`），連上歸零；重新連上時預設
     把 `invalidate` 裡全部 key 重抓一次（斷線期間漏掉的推播補不回來）。
-  - 認證：EventSource 不能帶 header，token 只能放 query string，而 URL 會進瀏覽器歷史與 proxy log，
-    **不要放長效 access token**。後端提供短效、只能開 stream 的 token，前端以 `getStreamToken` 每次（重）連前取一顆。
+  - 認證（預設）：EventSource 不能帶 header，token 只能放 query string，而 URL 會進瀏覽器歷史與 proxy log，
+    **不要放長效 access token**。後端提供短效、只能開 stream 的 token，前端以 `getStreamToken` 每次（重）連前取一顆
+    （例：`apiPost("/auth/stream-token")`，這個請求本身走 cookie + CSRF，由 `apiPost` 自動處理）。本 repo 的後端
+    目前沒有 SSE / stream token 端點，補上時照這個預設做。
+  - 替代做法：傳 `withCredentials: true` 且不給 `getStreamToken`，讓瀏覽器直接帶 HttpOnly cookie（跨網域另需後端
+    CORS 允許 credentials）。**只有後端的 SSE 端點也接受認證 cookie 時才可行**，要先確認，否則用 stream token。
   - callback / `invalidate` 對照表放 ref，inline 物件不會造成重連；`path`、`params`、`enabled`、事件名稱集合變了才重連。
 
 ## Error handling (`shared/lib` + `shared/ui`)

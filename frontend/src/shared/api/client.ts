@@ -34,7 +34,7 @@ export function resolveUrl(path: string): string {
   return `${env.apiBaseUrl}${path}`;
 }
 
-// Bearer token 只能送往 API 自家 origin(apiBaseUrl,未設定時為目前頁面 origin),
+// cookie 憑證與 CSRF token 只能送往 API 自家 origin(apiBaseUrl,未設定時為目前頁面 origin),
 // 送往其他 host 會把使用者憑證洩漏給第三方。
 export function isApiOrigin(url: string): boolean {
   const apiOrigin = env.apiBaseUrl
@@ -43,9 +43,41 @@ export function isApiOrigin(url: string): boolean {
   return new URL(url, location.origin).origin === apiOrigin;
 }
 
-/** 只有送往自家 API 才回傳 token,其他 host 一律 null */
-export function tokenFor(url: string): string | null {
-  return isApiOrigin(url) ? useAuthStore.getState().token : null;
+/** 後端取得 CSRF token 的端點(也會順便種下 csrftoken cookie) */
+export const CSRF_PATH = "/auth/csrf";
+
+let csrfToken: Promise<string> | null = null;
+
+async function fetchCsrfToken(): Promise<string> {
+  const url = resolveUrl(CSRF_PATH);
+  const res = await fetch(url, { credentials: "include" });
+  const payload = parseText(await res.text());
+  const data = settle("GET", CSRF_PATH, url, res.status, payload);
+  const token = (data as { csrf_token?: unknown } | null)?.csrf_token;
+  if (typeof token !== "string" || !token) {
+    throw new ApiError(res.status, `GET ${CSRF_PATH} returned no csrf_token`, payload);
+  }
+  return token;
+}
+
+/** 記憶體快取(同時多個請求共用一次抓取);失敗不快取,下次寫入再試 */
+export function getCsrfToken(): Promise<string> {
+  if (csrfToken) return csrfToken;
+  const pending = fetchCsrfToken();
+  csrfToken = pending;
+  pending.catch(() => {
+    if (csrfToken === pending) csrfToken = null;
+  });
+  return pending;
+}
+
+/** 丟掉快取的 CSRF token(Django 登入時會輪替,舊的會被拒絕) */
+export function resetCsrfToken(): void {
+  csrfToken = null;
+}
+
+function isCsrfFailure(status: number, payload: unknown): boolean {
+  return status === 403 && isBaseResponse(payload) && payload.error?.reason === "csrf_failed";
 }
 
 // 支援兩種錯誤格式:頂層 { message } 與團隊後端的 BaseResponse { data, error: { code, message } }
@@ -79,6 +111,8 @@ export function settle(
   const trusted = isApiOrigin(url);
   if (status < 200 || status >= 300) {
     if (status === 401 && trusted) useAuthStore.getState().clear();
+    // 不重試的呼叫端(apiUpload)至少讓下一次請求拿新 token
+    if (trusted && isCsrfFailure(status, payload)) resetCsrfToken();
     const message = errorMessage(payload) ?? `${method} ${path} failed with ${status}`;
     throw new ApiError(status, message, payload);
   }
@@ -109,12 +143,29 @@ async function send(
   if (typeof payloadBody === "string" && !headers.has("Content-Type"))
     headers.set("Content-Type", "application/json");
   const url = resolveUrl(path);
-  const token = tokenFor(url);
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  // 只有自家 API 才帶 cookie;寫入另外要 X-CSRFToken(其他 host 兩者都不給)
+  const trusted = isApiOrigin(url);
+  const needsCsrf = trusted && method !== "GET";
 
-  const res = await fetch(url, { ...init, method, headers, body: payloadBody });
-  if (!res.ok) settle(method, path, url, res.status, parseText(await res.text()));
-  return { res, url };
+  for (let attempt = 0; ; attempt++) {
+    const attemptHeaders = new Headers(headers);
+    if (needsCsrf) attemptHeaders.set("X-CSRFToken", await getCsrfToken());
+    const res = await fetch(url, {
+      ...init,
+      ...(trusted && { credentials: "include" as const }),
+      method,
+      headers: attemptHeaders,
+      body: payloadBody,
+    });
+    if (res.ok) return { res, url };
+    const payload = parseText(await res.text());
+    // token 過期或被輪替(如剛登入):重抓後只重送一次,再失敗就交給 settle 丟 ApiError
+    if (attempt === 0 && needsCsrf && isCsrfFailure(res.status, payload)) {
+      resetCsrfToken();
+      continue;
+    }
+    settle(method, path, url, res.status, payload);
+  }
 }
 
 async function request<T>(
@@ -128,7 +179,7 @@ async function request<T>(
 }
 
 /**
- * 下載後端匯出的檔案(非 JSON 回應)。帶 token、錯誤轉 ApiError 的規則與 apiGet 相同;
+ * 下載後端匯出的檔案(非 JSON 回應)。帶 cookie 與 CSRF、錯誤轉 ApiError 的規則與 apiGet / apiPost 相同;
  * 檔名取自 `Content-Disposition`(支援 `filename*=UTF-8''…`),沒有則為 null。
  * ```ts
  * const { blob, filename } = await apiDownload("/reports/export?year=2026");

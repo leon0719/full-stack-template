@@ -10,13 +10,12 @@ import { RequireAuth } from "./require-auth";
 
 describe("RequireAuth", () => {
   beforeEach(() => {
-    useAuthStore.setState({ user: null, token: null, status: "idle" });
+    useAuthStore.setState({ user: null, status: "idle" });
   });
 
   it("renders children when authenticated", () => {
     useAuthStore.setState({
       user: { id: "1", name: "admin", roles: ["admin"] },
-      token: "t",
       status: "authenticated",
     });
     render(
@@ -28,7 +27,7 @@ describe("RequireAuth", () => {
   });
 
   it("redirects to /login when not authenticated", () => {
-    useAuthStore.setState({ user: null, token: null, status: "unauthenticated" });
+    useAuthStore.setState({ user: null, status: "unauthenticated" });
     render(
       <RequireAuth>
         <p>dashboard</p>
