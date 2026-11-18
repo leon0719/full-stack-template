@@ -61,7 +61,9 @@
       "title": "已登出",
       "processing": "登出中…",
       "done": "您已成功登出。",
-      "backToLogin": "回登入頁"
+      "backToLogin": "回登入頁",
+      "failedTitle": "登出失敗",
+      "failed": "無法完成登出，您目前仍是登入狀態。請檢查網路後再試一次。"
     }
   },
   "pages": {

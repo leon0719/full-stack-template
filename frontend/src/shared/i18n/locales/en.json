@@ -61,7 +61,9 @@
       "title": "Logged out",
       "processing": "Logging out…",
       "done": "You have been logged out.",
-      "backToLogin": "Back to login"
+      "backToLogin": "Back to login",
+      "failedTitle": "Logout failed",
+      "failed": "We couldn't complete the logout, so you are still signed in. Check your connection and try again."
     }
   },
   "pages": {
