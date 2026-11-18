@@ -129,7 +129,8 @@ export interface paths {
         /**
          * Csrf
          * @description Return a CSRF token (and set the ``csrftoken`` cookie). Cookie-authenticated unsafe requests
-         *     must echo it in ``X-CSRFToken``; Django rotates it on login, so refetch after a ``csrf_failed``.
+         *     must echo it in ``X-CSRFToken``. Refetch after a ``csrf_failed``: the token goes stale when Django ``login()``
+         *     runs on the API host (admin, allauth callback) or the ``csrftoken`` cookie expires.
          */
         get: operations["apps_accounts_views_csrf"];
         put?: never;

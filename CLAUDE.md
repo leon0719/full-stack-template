@@ -44,8 +44,9 @@ Never run these yourself — stop and hand the exact command to the user
   (60 s TTL), and redirects to the frontend `/login/callback?code=...`. The frontend
   `django-adapter.ts` `completeLineLogin(code)` calls `POST /auth/line/exchange` (with `X-CSRFToken` from
   `GET /auth/csrf`), which sets the token as an HttpOnly cookie (`__Host-auth` in prod, `auth` locally) —
-  the browser never sees it — then `GET /auth/me`. Bearer is kept for tests only; no
-  endpoint hands out a Bearer token. `main.tsx` calls `setAuthAdapter(djangoAuthAdapter)` at startup.
+  the browser never sees it — then `GET /auth/me`. Bearer is kept for tests and Swagger (a dev mints one in
+  `make -C backend shell` with `AuthService.issue_token`, see `docs/development.md`); no endpoint hands out a
+  Bearer token. `main.tsx` calls `setAuthAdapter(djangoAuthAdapter)` at startup.
   Frontend and API must share a parent domain in prod (SameSite=Lax cookie). Testing the LINE callback
   locally needs public HTTPS — see the cloudflared section of `docs/development.md`.
 - **Roles (RBAC)**: backend roles are Django Groups (`backend/apps/accounts/roles.py`: every active user has

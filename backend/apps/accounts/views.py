@@ -38,7 +38,8 @@ def logout(request, response: HttpResponse):
 @auth_router.get("/csrf", response=BaseResponse[CsrfResponse], auth=None)
 def csrf(request):
     """Return a CSRF token (and set the ``csrftoken`` cookie). Cookie-authenticated unsafe requests
-    must echo it in ``X-CSRFToken``; Django rotates it on login, so refetch after a ``csrf_failed``."""
+    must echo it in ``X-CSRFToken``. Refetch after a ``csrf_failed``: the token goes stale when Django ``login()``
+    runs on the API host (admin, allauth callback) or the ``csrftoken`` cookie expires."""
     return BaseResponse(data=CsrfResponse(csrf_token=get_token(request)))
 
 

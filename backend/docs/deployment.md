@@ -52,13 +52,13 @@ chmod 600 .env.prod        # 內含機密
 | `SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(50))"` 產生 | ≥ 50 字元，不可是 placeholder |
 | `DATABASE_URL` | `postgresql://user:pass@host:5432/db?sslmode=require` | 外部託管 DB 保留 `sslmode=require`；同機 socket/私網才移除 |
 | `ALLOWED_HOSTS` | `api.your-domain.com` | API 對外域名（逗號分隔可多個） |
-| `CORS_ALLOWED_ORIGINS` | `https://your-frontend.com` | 允許跨域呼叫的**前端** origin；同時會自動加進 CSRF 信任清單（瀏覽器帶 cookie 的寫入請求要過 Django 的 Origin 檢查） |
+| `CORS_ALLOWED_ORIGINS` | `https://app.your-domain.com` | 允許跨域呼叫的**前端** origin；同時會自動加進 CSRF 信任清單（瀏覽器帶 cookie 的寫入請求要過 Django 的 Origin 檢查）。**前端與 API 必須同一主網域**（例：`app.your-domain.com` + `api.your-domain.com`）——auth cookie 是 `SameSite=Lax`，不同主網域的前端瀏覽器不會帶上它，登入會無聲失效 |
 | `CSRF_TRUSTED_ORIGINS` | `https://api.your-domain.com` | API **自己的** https origin（Django admin 的 CSRF 檢查用）；必須含 `https://` scheme。`CORS_ALLOWED_ORIGINS` 的前端 origin 會自動併入，**不用重複填** |
 | `CELERY_BROKER_URL` | `rediss://:pass@host:6380/0` | 生產 Redis（帶密碼；公網務必 TLS） |
 | `CACHE_URL` | `rediss://:pass@host:6380/1` | 與 broker 不同 DB index；throttle 計數器靠它 |
 | `LINE_LOGIN_CHANNEL_ID` | LINE Developers Console → Channel → Basic settings 的 Channel ID | LINE Login channel（登入唯一入口，沒有帳密登入） |
 | `LINE_LOGIN_CHANNEL_SECRET` | 同上 Channel secret | 同上 |
-| `FRONTEND_BASE_URL` | `https://your-frontend.com` | LINE 登入完成後導回前端的 origin（不可殘留 dev 預設 `http://localhost:5173`）；即 `AuthAdapter` 拿 exchange code 的 `/login/callback` 所在頁面 |
+| `FRONTEND_BASE_URL` | `https://app.your-domain.com` | LINE 登入完成後導回前端的 origin（不可殘留 dev 預設 `http://localhost:5173`）；即 `AuthAdapter` 拿 exchange code 的 `/login/callback` 所在頁面 |
 | `DOMAIN` | `api.your-domain.com` | Caddy 對外站台域名（[Cloudflare 端設定](caddy.md#步驟一cloudflare-端)）。compose 變數替換讀取，非 `Settings` 欄位 |
 | `NINJA_NUM_PROXIES` | `2` | 信任的反代層數：Cloudflare edge + Caddy 共 2 層。**設錯 per-IP 節流會失效**，改變拓撲時必須重算 |
 | `FORWARDED_ALLOW_IPS` | `172.16.0.0/12` | 信任哪些 proxy 的 `X-Forwarded-*`。預設值即對應內建 caddy（compose bridge 網段）；**設錯 per-IP 節流會失效**，換反代時必看 `.env.prod.example` 的說明 |

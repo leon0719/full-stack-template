@@ -1,8 +1,13 @@
 # 開發指南
 
 前端本機 `bun run dev`（http://localhost:5173）＋ 後端 Docker `make up`
-（http://localhost:8000）。dev 為跨源直連——後端 CORS dev 預設已允許
-localhost:5173，**不需任何 proxy 或 CORS 設定**。
+（http://localhost:8000）。日常開發為跨源直連——後端 CORS dev 預設已允許
+localhost:5173，**不需任何 proxy 或 CORS 設定**；只有「LINE 登入本地測試」要走 tunnel 時，
+才會用到 Vite 的 proxy（見下方該節）。
+
+**注意**：前端務必用 `http://localhost:5173` 開，不要用 `127.0.0.1:5173`——後者與
+`localhost:8000` 是不同 site，`SameSite=Lax` 的 `auth` cookie 不會被帶上。本機的 `auth` cookie
+綁在 `localhost` 這個 host（cookie 不分 port），會與你機器上其他 `localhost` 服務共用。
 
 ## 前置需求
 
@@ -31,8 +36,9 @@ cd frontend && bun install && cd ..
 make dev
 ```
 
-開 http://localhost:5173 → 用 LINE 登入（需要 tunnel，見下方「LINE 登入本地測試」）→ header 應顯示登入者名稱。
-這代表前後端串接成功（前端打的是真後端 `/auth/*`）。
+LINE 登入需要公開 HTTPS callback，沒設 tunnel 時 `http://localhost:5173` 登不進去。要驗證登入，請照下方
+「LINE 登入本地測試」，用 **tunnel 網址**（不是 `localhost:5173`）開前端 → 用 LINE 登入 → header 應顯示
+登入者名稱。這代表前後端串接成功（前端打的是真後端 `/auth/*`）。
 
 ## 日常指令
 
@@ -77,7 +83,21 @@ make dev
     `permission_denied`）。
 - **CORS**：後端 dev 預設允許 `localhost:5173/3000`；改前端 port 時要同步改
   後端 `.env.local` 的 `CORS_ALLOWED_ORIGINS`。
-- **API 文件**：http://localhost:8000/api/docs（互動式，可直接試打）。
+- **API 文件**：http://localhost:8000/api/docs（Swagger UI，`DEBUG=True` 才開；tunnel 模式下也可用 tunnel 網址
+  加 `/api/docs` 開，`/openapi.json` 已在 Vite proxy 清單內）。需要登入的端點**不能直接試打**：cookie 認證的寫入
+  請求必須帶 `X-CSRFToken`，而 Swagger UI 只在全域 auth 開 csrf 時才會自動帶（本專案的 auth 是各 router 自己掛的），
+  所以會回 403 `csrf_failed`；LINE 登入的 cookie 也是種在 tunnel 網域，不在 `localhost:8000`。本專案沒有簽發
+  Bearer token 的端點，開發時請用 shell 簽一顆，貼到 Swagger 右上角「Authorize」：
+  ```bash
+  make -C backend shell   # 進到 Django shell 後貼上下面三行
+  ```
+  ```python
+  from django.contrib.auth import get_user_model
+  from apps.accounts.services import AuthService
+  print(AuthService.issue_token(get_user_model().objects.get(username="<你的帳號>")))
+  ```
+  有 `Authorization: Bearer` header 時後端只認 header、忽略 cookie，也不驗 CSRF，之後就能試打讀寫端點。
+  這顆 token 等同登入憑證，只在本機開發用，別貼進文件、issue 或 log。
 
 - **長任務**：後端 `apps/jobs` ↔ 前端 `useJobPolling(jobId)`（`@/shared/api`）。發起端點回 201 + job，
   前端輪詢 `GET /jobs/{id}` 拿 `{id, status, progress, result, error}`，取消打 `POST /jobs/{id}/cancel`。
@@ -105,7 +125,7 @@ LINE Login 的 callback 需要公開 HTTPS URL，本機的 `localhost` 無法直
 LINE Developers Console。登入 token 放在 HttpOnly cookie，前端與 API 必須**同 site**
 cookie 才送得出去，所以 tunnel 接的是 **Vite dev server（5173）**，不是後端：
 `frontend/vite.config.ts` 的 `server.proxy` 會把 `/accounts`、`/auth`、`/articles`、
-`/notifications`、`/jobs`、`/health`、`/api` 轉給 `http://localhost:8000`，瀏覽器看到的
+`/notifications`、`/jobs`、`/health`、`/api`、`/openapi.json` 轉給 `http://localhost:8000`，瀏覽器看到的
 前端與 API 都是同一個 `https://<random>.trycloudflare.com`。
 
 1. 啟動後端：`make up`
@@ -115,10 +135,14 @@ cookie 才送得出去，所以 tunnel 接的是 **Vite dev server（5173）**�
    ```
    輸出會有一行 `https://<random>.trycloudflare.com` —— 這就是這次測試要用的網址。
 3. 更新 `backend/.env.local`（把 `<random>` 換成實際值）：
-   - `ALLOWED_HOSTS` 加上 tunnel hostname（例如
-     `localhost,127.0.0.1,0.0.0.0,host.docker.internal,<random>.trycloudflare.com`）
-   - `FRONTEND_BASE_URL=https://<random>.trycloudflare.com`（登入完成後導回前端的位置）
-   - `CORS_ALLOWED_ORIGINS` 加上 `https://<random>.trycloudflare.com`
+   ```
+   ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,host.docker.internal,<random>.trycloudflare.com
+   FRONTEND_BASE_URL=https://<random>.trycloudflare.com
+   CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,https://<random>.trycloudflare.com
+   ```
+   - `ALLOWED_HOSTS` 要加上 tunnel hostname
+   - `FRONTEND_BASE_URL` 是登入完成後導回前端的位置
+   - `CORS_ALLOWED_ORIGINS` 要保留原本的 localhost 兩項再加上 tunnel origin
      （同時會進 CSRF 信任清單，不用另外設 `CSRF_TRUSTED_ORIGINS`）
    - 重啟後端讓設定生效：`make down && make up`
 4. 到 [LINE Developers Console](https://developers.line.biz/console/) 的對應 Channel，

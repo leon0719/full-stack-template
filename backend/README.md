@@ -24,7 +24,7 @@ make up                                  # API, DB, Redis, Celery worker + beat
 ```
 
 - API: http://localhost:8000
-- API docs (Swagger): http://localhost:8000/api/docs
+- API docs (Swagger): http://localhost:8000/api/docs — authenticated writes need a Bearer token pasted into "Authorize" (cookie writes fail CSRF there; see [../docs/development.md](../docs/development.md))
 - Liveness probe: http://localhost:8000/health/live
 - Readiness probe: http://localhost:8000/health/ready
 

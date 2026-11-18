@@ -43,7 +43,8 @@ function cspMeta(env: Record<string, string>): Plugin {
   };
 }
 
-// 後端 API 前綴(backend/config/urls.py)+ allauth 的 /accounts。不含 Django /admin/:
+// 後端 API 前綴(backend/config/urls.py)+ allauth 的 /accounts + Swagger 載入 schema 用的
+// /openapi.json(/api/docs 本身已在 /api 底下)。不含 Django /admin/:
 // 前端有自己的 /admin 路由,要進 Django admin 請直連 http://localhost:8000/admin/。
 const BACKEND_PREFIXES = [
   "/accounts",
@@ -53,6 +54,7 @@ const BACKEND_PREFIXES = [
   "/jobs",
   "/health",
   "/api",
+  "/openapi.json",
 ];
 
 export default defineConfig(({ mode }) => ({

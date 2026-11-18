@@ -19,7 +19,7 @@ make up                            # 啟動 API + DB + Redis + Celery worker/bea
 啟動後：
 
 - API：http://localhost:8000
-- Swagger 文件：http://localhost:8000/api/docs
+- Swagger 文件：http://localhost:8000/api/docs（需要登入的端點要先用 Bearer token 按「Authorize」，做法見 [../../docs/development.md](../../docs/development.md) 的「API 文件」）
 - 健康檢查：http://localhost:8000/health/live 、 /health/ready
 
 建管理員帳號（Django admin 在 http://localhost:8000/admin/ ）：
@@ -133,7 +133,7 @@ make install
 | 功能 | 怎麼試 |
 | --- | --- |
 | 角色 | `make createsuperuser` 建的帳號自動有 `admin` 角色；LINE 登入的帳號在 `/admin/` 把它加進 `admin` group。`GET /auth/me` 看 `roles` |
-| 匯出 | `GET /articles/export?format=xlsx\|pdf\|zip`（Swagger 可直接下載）。PDF 中文字型在 image 裡（`fonts-arphic-uming`），**改過 Dockerfile 要 `make rebuild`**；直接在 macOS 本機跑時找不到字型檔，會退回不嵌入的字型（只適合看版面） |
+| 匯出 | `GET /articles/export?format=xlsx\|pdf\|zip`（Swagger 下載前先按「Authorize」貼 Bearer token）。PDF 中文字型在 image 裡（`fonts-arphic-uming`），**改過 Dockerfile 要 `make rebuild`**；直接在 macOS 本機跑時找不到字型檔，會退回不嵌入的字型（只適合看版面） |
 | 通知 | `make shell` → `NotificationService.enqueue_email("you@example.com", "hi", "body")`，worker log 會印出整封信；`/admin/` 的 Notifications 看 outbox 狀態。LINE 推播沒設 token 時只寫 log |
 | 長任務 | `POST /jobs/demo` → 輪詢 `GET /jobs/{id}` → `POST /jobs/{id}/cancel` |
 | 工作日 | `docker compose -f docker/docker-compose.dev.yml exec api uv run python manage.py import_holidays 2026`（會連到 jsDelivr 抓資料；不想連網就 `--file <下載好的 JSON>`） |

@@ -7,7 +7,7 @@ Django Ninja + React 全端專案模板。
 | 後端 | Django Ninja、Celery、PostgreSQL、Redis（uv + Docker） | [`backend/`](backend/) |
 | 前端 | Vite、React 19、TypeScript、FSD、TanStack Router/Query（bun + Biome） | [`frontend/`](frontend/) |
 
-開箱即含：LINE Login → bearer token auth 串接（前端 `djangoAuthAdapter` ↔ 後端
+開箱即含：LINE Login → HttpOnly cookie auth 串接（前端 `djangoAuthAdapter` ↔ 後端
 `/auth/*`），角色（RBAC，`/auth/me` 的 `roles` → 前端 `RequireRole`）、稽核紀錄、xlsx/PDF 匯出、
 通知 outbox（Email / LINE 推播）、長任務（`/jobs` ↔ `useJobPolling`）、台灣工作日，
 統一 Makefile、path-filtered CI + 可選的後端 CD、DB 備份 sidecar、S3 + CloudFront 部署腳本。
