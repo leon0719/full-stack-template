@@ -23,6 +23,12 @@ migrate）、`api`、`celery-worker`、`celery-beat`、`backup`（DB 備份 side
 - **外部 PostgreSQL 與 Redis**（RDS / Cloud SQL / Upstash 等，或自管）。
   prod compose 刻意不包含 DB/Redis——資料層的備份與升級不該跟 app 綁在一起。
   Redis 建議帶密碼 + TLS（`rediss://`）。
+- **Redis 的 eviction 設定**：broker、cache、throttle 計數器共用同一台 Redis，
+  只靠 DB index 分開，而 `maxmemory-policy` 是整台共用的：
+  - 必須是 `noeviction` 或 `volatile-*`，**絕不可 `allkeys-*`**——記憶體滿時會把
+    排隊中的 Celery 任務當成快取踢掉。
+  - 排隊中的任務要撐過 Redis 重啟，就開 AOF（`appendonly yes`）。
+  - 想讓 cache 用 `allkeys-lru`，把 `CACHE_URL` 指到另一台 Redis。
 - 網域已加入 Cloudflare（A record 橘雲指向主機 IP、SSL mode 設 Full）、
   主機開放 inbound 443（細節與替代方案見 [caddy.md](caddy.md)）。
 
@@ -61,7 +67,7 @@ chmod 600 .env.prod        # 內含機密
 | `FRONTEND_BASE_URL` | `https://app.your-domain.com` | LINE 登入完成後導回前端的 origin（不可殘留 dev 預設 `http://localhost:5173`）；即 `AuthAdapter` 拿 exchange code 的 `/login/callback` 所在頁面 |
 | `DOMAIN` | `api.your-domain.com` | Caddy 對外站台域名（[Cloudflare 端設定](caddy.md#步驟一cloudflare-端)）。compose 變數替換讀取，非 `Settings` 欄位 |
 | `NINJA_NUM_PROXIES` | `2` | 信任的反代層數：Cloudflare edge + Caddy 共 2 層。**設錯 per-IP 節流會失效**，改變拓撲時必須重算 |
-| `FORWARDED_ALLOW_IPS` | `172.16.0.0/12` | 信任哪些 proxy 的 `X-Forwarded-*`。預設值即對應內建 caddy（compose bridge 網段）；**設錯 per-IP 節流會失效**，換反代時必看 `.env.prod.example` 的說明 |
+| `FORWARDED_ALLOW_IPS` | `172.16.0.0/12,` + Cloudflare IP 段 | uvicorn 信任哪些 proxy 的 `X-Forwarded-*`，決定 `REMOTE_ADDR`（access log、AuditLog 的 `ip`）與 scheme。要列出整條鏈：compose bridge 網段（caddy）加上 Cloudflare IP 段（與 `docker/Caddyfile` 的 `trusted_proxies` 同一份，完整值見 `.env.prod.example`）；只留 `172.16.0.0/12` 會解析成 Cloudflare edge IP。per-IP 節流看的是 `NINJA_NUM_PROXIES`，不是這個。換反代時必看 `.env.prod.example` 的說明 |
 | `SENTRY_DSN` | Sentry 專案的 DSN | **prod 必填**，留空會拒絕開機。填了只做到「錯誤被記錄」，要通知到人還得建 Slack alert rule（見 [alerting.md](alerting.md)）。真的不用請填 `disabled` |
 
 ### 選填 — 有合理預設
@@ -70,9 +76,8 @@ chmod 600 .env.prod        # 內含機密
 | --- | --- | --- |
 | `WEB_CONCURRENCY` | CPU+1 | uvicorn worker 數 |
 | `CELERY_CONCURRENCY` | `4` | 每個 worker 容器的 process 數（compose 變數替換） |
-| `DB_CONN_POOL` | `false` | psycopg3 連線池。預設用持久連線（`CONN_MAX_AGE=600`＋健康檢查）已夠用；高併發、或 DB 連線數吃緊時再開 |
 | `SENTRY_TRACES_SAMPLE_RATE` / `SENTRY_PROFILES_SAMPLE_RATE` | `0.1` / `0.0` | 效能追蹤與 profiling 的取樣率（`SENTRY_DSN` 本身是必填，見上表） |
-| `BEAT_HEARTBEAT_URL` | 空（停用） | celery-beat 心跳的 ping URL。beat 掛掉是最安靜的故障，沒有這個就只能等人發現排程沒跑（見 [alerting.md](alerting.md)） |
+| `BEAT_HEARTBEAT_URL` | 空（停用） | 排程鏈路心跳的 ping URL，**強烈建議填**。ping 由 worker 執行 beat 排入的任務送出，所以 beat、broker、worker 任一掛掉（含 worker 全掛）都會讓 ping 停止；佇列積壓檢查本身也需要 worker 在線，沒有這個時 worker 全掛不會有任何告警（見 [alerting.md](alerting.md)） |
 | `CELERY_QUEUE_DEPTH_ALERT_THRESHOLD` | `1000` | 佇列積壓告警門檻。積壓時沒有任何任務會失敗，不主動量測不會知道。依實際流量調整 |
 | `ARTICLE_PUBLISHED_WEBHOOK_URL` | 空（停用） | 文章發布 webhook 示範整合 |
 | `AUTH_TOKEN_TTL_DAYS` 等 tuning | 見 `.env.prod.example` | token 效期、throttle rates、AuditLog 保留天數（`AUDIT_LOG_RETENTION_DAYS`）、分頁大小、匯出上限（`EXPORT_MAX_ROWS`）、通知重試/保留（`NOTIFICATION_*`）、job 保留（`JOB_RETENTION_DAYS`），皆有預設 |
@@ -81,6 +86,12 @@ chmod 600 .env.prod        # 內含機密
 | `BACKUP_S3_URI` 等 `BACKUP_*` | 空（停用備份） | DB 備份 sidecar，見下方「備份與還原」。非 `Settings` 欄位，compose 變數替換讀取 |
 | `UVICORN_GRACEFUL_SHUTDOWN_TIMEOUT` / `CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT` | `30` / `30` | 收到 SIGTERM 後等進行中請求／任務的秒數，見下方「優雅關機」 |
 | `UVICORN_TIMEOUT_KEEP_ALIVE` | `130` | uvicorn 閒置 keep-alive 秒數，必須大於反代對 upstream 的 keepalive（Caddy 2 分鐘），否則偶發 502 |
+
+**DB 連線預算**（psycopg3 pool `max_size=10`，見 `config/settings/base.py`）：
+總連線數 ≈ `WEB_CONCURRENCY` × 10 + `CELERY_CONCURRENCY` × 10 + beat（1 個 process，
+最多 10）+ migrate（一次性 job），必須低於 Postgres 的 `max_connections`（預設 100）。
+例：4 核主機 `WEB_CONCURRENCY` 預設 5、`CELERY_CONCURRENCY=4` → 最多約 100，已經碰頂。
+超過時調低 pool `max_size`、降低 concurrency，或前面放 PgBouncer（並拿掉 `config/settings/base.py` 的 `_db_options["pool"]`）。
 
 不用設的：`DEBUG`（settings module 固定，環境無法翻轉）、`GIT_COMMIT_SHA`
 （`make prod-build` 自動以 build arg 注入）、`UVICORN_HOST`（compose 已處理，
@@ -133,8 +144,10 @@ log 看得到真實 client IP（per-IP 節流依賴此點）。
 docker compose -f docker/docker-compose.prod.yml exec api python manage.py createsuperuser
 ```
 
-（建議同時照 [caddy.md](caddy.md#保護-admin建議) 在 Caddyfile 加 IP
-allowlist 保護 `/admin/`——它沒有 rate limit。）
+**上線前必須**照 [caddy.md](caddy.md#保護-admin上線必做) 限制 `/admin/` 的來源
+（Caddyfile IP allowlist 或 Cloudflare Zero Trust）：admin 是 Django session 的
+**帳密登入**（不走 LINE 登入），也沒有 rate limit。admin 登入成功／失敗會記進
+AuditLog（`admin_login_success` / `admin_login_failed`），但只能事後查，擋不住暴力破解。
 
 ## 更新部署
 
@@ -142,11 +155,19 @@ allowlist 保護 `/admin/`——它沒有 rate limit。）
 git pull
 make prod-backup  # migration 沒有回頭路：先備份，失敗就停在這裡
 make prod-build
-make prod-migrate # 用新映像跑 migration，舊容器照常服務（migration 要 expand/contract 相容舊程式）
+make prod-migrate # 用新映像跑 migration，舊容器照常服務
 make prod-up SKIP_BACKUP=1
 ```
 
 設定好 CD（下一節）之後，push 到 main 就會自動跑這一串。
+
+- **不是零停機**：只有一個 `api` 容器，`make prod-up` 會原地重建它。重啟期間
+  Caddy 的 `lb_try_duration 30s` 會暫留請求並重試連線，client 看到的是短暫延遲而
+  不是 502；但超過 30 秒仍會斷。要真正零停機得跑兩個以上 api replica。
+- **Migration 必須 expand/contract**：migrate job 在舊容器被替換**之前**就跑完，
+  所以每個 migration 都要讓「上一版已部署的程式碼」繼續正常運作：
+  - 刪欄位／刪表／改名，要等程式碼不再使用後，放到**下一個 release** 才做。
+  - 新增 NOT NULL 欄位分三步：先加成 nullable → backfill → 再加 NOT NULL 約束。
 
 回滾：`git checkout <前一個穩定 commit>` 後重跑 `make prod-build && make prod-up`。注意
 migration 不會自動倒退——含 schema 變更的回滾需先評估該 migration 是否可逆，不可逆就從部署前的

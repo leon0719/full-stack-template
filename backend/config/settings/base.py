@@ -7,9 +7,8 @@ from pydantic import Field, PositiveInt, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _env = os.getenv("ENV", "local")
-_env_file = f".env.{_env}"
-
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+_env_file = BASE_DIR / f".env.{_env}"
 
 # Dev-friendly defaults for ALLOWED_HOSTS / CORS_ALLOWED_ORIGINS (Docker + common
 # frontend dev ports). Extracted so the prod validator can reject them: every real
@@ -35,6 +34,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=_env_file,
         env_file_encoding="utf-8",
+        # Validation errors otherwise echo raw input values (secrets included) into boot logs.
+        hide_input_in_errors=True,
         extra="ignore",
         case_sensitive=False,
     )
@@ -56,9 +57,6 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: SecretStr = SecretStr(_DEV_CELERY_BROKER_URL)
     CACHE_URL: SecretStr = SecretStr(_DEV_CACHE_URL)
     GIT_COMMIT_SHA: str = ""
-
-    # Use a psycopg3 connection pool (Postgres only). Off by default.
-    DB_CONN_POOL: bool = False
 
     # django-ninja throttling: number of trusted reverse proxies in front of the
     # app. MUST match the proxy hop count implied by FORWARDED_ALLOW_IPS —
@@ -310,18 +308,22 @@ ASGI_APPLICATION = "config.asgi.application"
 # Database
 # ---------------------------------------------------------------------------
 DATABASES = {"default": dj_database_url.config(default=settings.DATABASE_URL.get_secret_value())}
-if settings.DB_CONN_POOL and DATABASES["default"].get("ENGINE") == "django.db.backends.postgresql":
-    # psycopg3 connection pool — reuses connections under concurrency. The pool
-    # owns connection lifecycle, so persistent connections (CONN_MAX_AGE) must
-    # be disabled. Opt-in via DB_CONN_POOL=true (needs psycopg[pool]).
-    DATABASES["default"]["CONN_MAX_AGE"] = 0
-    DATABASES["default"].setdefault("OPTIONS", {})["pool"] = {"min_size": 2, "max_size": 10}
-else:
-    # Persistent connections: reuse a connection for up to 10 min (no pool).
-    # Health-check before reuse so a DB restart/failover doesn't surface as a
-    # burst of 500s from stale connections.
-    DATABASES["default"]["CONN_MAX_AGE"] = 600
-    DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+# No persistent connections in either mode: Django's docs advise against
+# CONN_MAX_AGE>0 under ASGI; the psycopg3 pool owns reuse instead (Postgres only,
+# so tests on SQLite skip it).
+DATABASES["default"]["CONN_MAX_AGE"] = 0
+# Health-check before reuse so a DB restart/failover doesn't surface as a burst
+# of 500s; Django turns this into check=ConnectionPool.check_connection
+# (passing "check" in the pool dict too would raise a duplicate-kwarg TypeError).
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+if DATABASES["default"].get("ENGINE") == "django.db.backends.postgresql":
+    _db_options = DATABASES["default"].setdefault("OPTIONS", {})
+    _db_options.setdefault("connect_timeout", 5)
+    # timeout bounds the wait for a free connection; connect_timeout above only
+    # bounds one dial attempt inside the pool, so without it a DB outage parks
+    # every request (and /health/ready) on psycopg_pool's 30s default.
+    # Drop this line if an external pooler (PgBouncer) sits in front of the DB.
+    _db_options["pool"] = {"min_size": 2, "max_size": 10, "timeout": 5}
 
 # ---------------------------------------------------------------------------
 # Password validation
@@ -551,13 +553,18 @@ CELERY_BEAT_SCHEDULE = {
     },
     # 維運訊號(見 config/alerting.py)。頻率要比監控端設定的「多久沒收到就告警」
     # grace period 密一些,否則正常運作也會誤報。
+    # Expiry < interval: these run on the queue they monitor, so behind a backlog
+    # stale runs are dropped instead of piling up. DatabaseScheduler only reads
+    # "expire_seconds" (a plain "expires" option is silently ignored).
     "beat-heartbeat": {
         "task": "core.beat_heartbeat",
         "schedule": crontab(minute="*/5"),
+        "options": {"expire_seconds": 240},
     },
     "check-queue-depth": {
         "task": "core.check_queue_depth",
         "schedule": crontab(minute="*/5"),
+        "options": {"expire_seconds": 240},
     },
     "purge-old-audit-logs": {
         "task": "audit.purge_old_audit_logs",

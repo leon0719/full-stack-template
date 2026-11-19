@@ -64,9 +64,16 @@ class ArticleService(OwnedResourceService[Article]):
     def delete_owned(cls, user: AbstractBaseUser, article_id: int) -> None:
         with transaction.atomic():
             article = cls.get_owned_or_404(user, article_id)
-            # Hard delete: record first — Model.delete() clears the instance pk the entry needs.
-            record_audit(AuditLog.Action.DELETE, actor=user, target=article, before=snapshot(article), after={})
+            before = snapshot(article)
             cls.delete(article)
+            record_audit(AuditLog.Action.DELETE, actor=user, target=article, before=before)
+
+    @classmethod
+    def restore_owned(cls, user: AbstractBaseUser, pk: int) -> Article:
+        with transaction.atomic():
+            article = super().restore_owned(user, pk)
+            record_audit(AuditLog.Action.RESTORE, actor=user, target=article)
+        return article
 
     @classmethod
     def export(cls, user: AbstractBaseUser, filters: ArticleFilter, file_format: ExportFormat) -> ExportFile:

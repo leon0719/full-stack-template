@@ -26,7 +26,10 @@ _HEARTBEAT_TIMEOUT_SECONDS = 10
 
 
 def ping_heartbeat(url: str) -> bool:
-    """通知外部監控服務「beat 還活著」。任何失敗都只記錄,不往外拋。
+    """通知外部監控服務「排程鏈路還活著」。任何失敗都只記錄,不往外拋。
+
+    ping 由 worker 執行 beat 排入 broker 的任務送出,所以收到 ping 代表
+    beat + broker + worker 端到端都正常;worker 全掛也是靠 ping 停止來發現。
 
     回傳是否 ping 成功,方便測試與呼叫端記錄。
     """
@@ -112,14 +115,16 @@ def alert(message: str, **context: object) -> None:
 def get_queue_depth() -> int | None:
     """回傳 Celery 預設佇列的待處理訊息數;取不到時回傳 None。
 
-    直接問 broker(Redis 的 LLEN)而不用 celery inspect —— inspect 是問「worker」,
-    但 worker 全掛的時候正是最需要這個數字的時刻,那時 inspect 什麼也問不到。
+    直接問 broker(Redis 的 LLEN)而不用 celery inspect,不必等 worker 回覆。
+    但呼叫端 core.check_queue_depth 本身是排在同一條佇列上的任務,仍需要有
+    worker 在線才會執行 —— worker 全掛要靠 heartbeat 停止來偵測,不是這裡。
     """
     from kombu import Connection
 
     queue_name = getattr(settings, "CELERY_TASK_DEFAULT_QUEUE", "celery")
     try:
-        with Connection(settings.CELERY_BROKER_URL) as conn:
+        # 沿用 broker 的 socket timeout,broker 無回應時不會把 worker 卡住。
+        with Connection(settings.CELERY_BROKER_URL, transport_options=settings.CELERY_BROKER_TRANSPORT_OPTIONS) as conn:
             channel = conn.default_channel
             # kombu 的 Redis/AMQP channel 都提供 _size();介面非公開但穩定,
             # 且是唯一不需要 worker 在線就能取得佇列長度的方法。

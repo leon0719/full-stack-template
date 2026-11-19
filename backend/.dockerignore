@@ -47,6 +47,9 @@ docker-compose*.yml
 db.sqlite3
 data
 
+# Perf-test credentials (bearer tokens; never baked into the image)
+perf/.perf_users.json
+
 # Static files (will be collected during build)
 staticfiles
 

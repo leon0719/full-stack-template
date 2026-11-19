@@ -3,6 +3,7 @@
 .PHONY: migrate makemigrations shell createsuperuser
 .PHONY: docker-clean logs-api logs-db logs-worker logs-beat
 .PHONY: prod-up prod-down prod-logs prod-build prod-backup prod-migrate
+.PHONY: perf-seed perf
 
 # Docker compose files
 COMPOSE_DEV = docker compose -f docker/docker-compose.dev.yml
@@ -22,7 +23,7 @@ LOCAL_ENV_FILE ?= .env.local
 define LOAD_LOCAL_ENV
 set -a; [ -f $(LOCAL_ENV_FILE) ] && . ./$(LOCAL_ENV_FILE) || true; \
 : "$${SECRET_KEY:=dev-insecure-key}"; \
-: "$${DATABASE_URL:=postgresql://postgres:postgres@localhost:5432/django_ninja_tree}"; \
+: "$${DATABASE_URL:=postgresql://app:app@localhost:5433/app}"; \
 export SECRET_KEY DATABASE_URL; set +a;
 endef
 
@@ -56,7 +57,7 @@ help:
 	@echo ""
 	@echo "Django 指令 (在開發容器中執行):"
 	@echo "  make migrate           - 執行資料庫遷移"
-	@echo "  make makemigrations    - 建立新遷移檔"
+	@echo "  make makemigrations    - 建立新遷移檔 (可用 APP=\"name\" 指定 app)"
 	@echo "  make makemigrations-local - 本地建立遷移檔 (可用 APP=\"name\" 指定 app)"
 	@echo "  make shell             - 開啟 Django shell"
 	@echo "  make createsuperuser   - 建立管理員帳號"
@@ -67,10 +68,14 @@ help:
 	@echo "  make lint              - 執行 ruff 檢查"
 	@echo "  make type-check        - 執行 mypy 型別檢查"
 	@echo "  make test              - 執行測試 (在開發容器中；可用 TEST=\"path\" 指定測試)"
-	@echo "  make test-local        - 本地執行測試 (載入 .env.local，缺項用 dummy 值)"
+	@echo "  make test-local        - 本地執行測試 (SQLite in-memory；設 TEST_DATABASE_URL 改用其他 DB)"
 	@echo "  make coverage          - 執行測試並產生覆蓋率報告"
 	@echo "  make unused            - 檢查未使用的程式碼 (vulture)"
 	@echo "  make audit             - 掃描鎖定依賴的已知漏洞 (pip-audit，對等 CI)"
+	@echo ""
+	@echo "效能測試 (手動執行，見 docs/backend-standards.md):"
+	@echo "  make perf-seed         - 在開發容器內建立/重用一批測試帳號 -> perf/.perf_users.json"
+	@echo "  make perf              - 啟動 locust web UI (:8089)；ARGS=\"...\" 可傳 headless 參數"
 	@echo ""
 	@echo "其他:"
 	@echo "  make install           - 安裝本地依賴 (僅供 IDE)"
@@ -174,7 +179,7 @@ migrate:
 	$(COMPOSE_DEV) exec api uv run python manage.py migrate
 
 makemigrations:
-	$(COMPOSE_DEV) exec api uv run python manage.py makemigrations
+	$(COMPOSE_DEV) exec api uv run python manage.py makemigrations $(APP)
 
 shell:
 	$(COMPOSE_DEV) exec api uv run python manage.py shell
@@ -213,6 +218,7 @@ type-check:
 openapi:
 	@bash -c '$(LOAD_LOCAL_ENV) uv run python manage.py shell -c "import json; from config.urls import api; open(\"../frontend/openapi.json\", \"w\").write(json.dumps(api.get_openapi_schema(), indent=2))"'
 
+# DATABASE_URL is forced after loading .env.local, whose value (db:5432) only resolves inside Docker.
 test-local:
 	@echo "Running tests locally..."
 	@bash -c '$(LOAD_LOCAL_ENV) DATABASE_URL="$${TEST_DATABASE_URL:-sqlite://:memory:}" uv run pytest $(TEST)'
@@ -239,7 +245,21 @@ unused:
 audit:
 	@echo "Auditing locked dependencies for known vulnerabilities..."
 	@uv export --frozen --no-dev --no-emit-project --format requirements-txt -o requirements-audit.txt
-	@uvx pip-audit --disable-pip -r requirements-audit.txt; status=$$?; rm -f requirements-audit.txt; exit $$status
+	@uvx pip-audit==2.10.1 --disable-pip -r requirements-audit.txt; status=$$?; rm -f requirements-audit.txt; exit $$status
+
+# ===================
+# Performance Testing (manual, not in CI — see docs/backend-standards.md)
+# ===================
+
+# Seeds go through the ORM inside the api container (DATABASE_URL already
+# points at the dev DB there), not through the host, so no local DB config is needed.
+perf-seed:
+	@echo "Seeding perf test user pool..."
+	@$(COMPOSE_DEV) exec -T api uv run python manage.py seed_perf_users --count 20 > perf/.perf_users.json
+	@echo "Wrote perf/.perf_users.json"
+
+perf:
+	@uv run --group perf locust -f perf/locustfile.py --host http://localhost:8000 $(ARGS)
 
 # ===================
 # Cleanup

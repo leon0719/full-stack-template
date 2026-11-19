@@ -10,7 +10,7 @@
         record_audit(AuditLog.Action.UPDATE, actor=user, target=article, before=before)
 
 - ``before`` / ``after`` 是欄位快照(``snapshot()``);``after`` 省略時從 ``target`` 現值取。
-  create 只給 after(before 省略);刪除給 before + ``after={}``。
+  create 只給 after(before 省略);硬刪除給 before + ``after={}``;軟刪除只給 before(diff 就是 deleted_at)。
 - IP 與 request_id 由 ``AuditLog.record`` 從 request context 自動帶入。
 - 機密欄位(名稱含 password/secret/token/digest…)只記「有變更」,不記值:稽核表任何
   進得了後台的人都看得到,不能變成第二份密碼/金鑰清單。

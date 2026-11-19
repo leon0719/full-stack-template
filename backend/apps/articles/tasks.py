@@ -17,8 +17,8 @@ from apps.articles.models import Article
     # its own errors, so a task-level exception here means the DB read failed —
     # retrying that is worth it, retrying a genuine bug (KeyError, TypeError…)
     # is not. Bare Exception would retry real bugs 3x and delay the alert.
-    # NOTE: don't autoretry on top of the strict @handle_api_call wrapper (its
-    # own tenacity retry) — the retry counts would multiply.
+    # NOTE: don't stack autoretry_for on a call that already retries internally
+    # (@handle_api_call_graceful's tenacity) — the retry counts would multiply.
     autoretry_for=(OperationalError,),
     retry_backoff=True,
     retry_backoff_max=60,
@@ -30,9 +30,9 @@ def notify_article_published(self, article_id: int) -> str:
 
     Tasks take primitive args (an id, not a model) and must be idempotent, because
     acks_late (config/settings/base.py) and autoretry can each run the body more
-    than once. DB work here is naturally idempotent; the webhook is at-least-once,
-    so the payload carries an event id (the task id — stable across retries and
-    broker re-deliveries) for the consumer to deduplicate on.
+    than once. DB work here is naturally idempotent; webhook delivery is best-effort
+    but can still repeat, so the payload carries an event id (the task id — stable
+    across retries and broker re-deliveries) for the consumer to deduplicate on.
     """
     article = Article.objects.filter(pk=article_id).only("id", "title").first()
     if article is None:

@@ -62,3 +62,6 @@ htmlcov/
 
 # Git Worktrees
 .worktrees/
+
+# Perf test seed pool (bearer tokens — regenerate with `make perf-seed`)
+perf/.perf_users.json

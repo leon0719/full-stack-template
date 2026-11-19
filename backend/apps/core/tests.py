@@ -125,7 +125,8 @@ def test_attachment_response_headers():
 
 
 @pytest.mark.unit
-def test_export_throttle_has_its_own_cache_scope():
-    from apps.core.throttling import ExportThrottle, WriteRateThrottle
+def test_throttles_use_distinct_cache_scopes():
+    from apps.core.throttling import ExportThrottle, LoginThrottle, WriteRateThrottle
 
-    assert ExportThrottle().scope != WriteRateThrottle().scope
+    classes = (LoginThrottle, WriteRateThrottle, ExportThrottle)
+    assert len({cls.scope for cls in classes}) == len(classes)

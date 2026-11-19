@@ -34,28 +34,36 @@ FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 
 # libpq5 for psycopg at runtime. The HEALTHCHECK uses the image's own Python
 # (urllib, stdlib) instead of curl — no extra package, smaller attack surface.
+#
+# upgrade first: the base image is pinned by digest (reproducible builds), so it
+# carries whatever Debian packages existed when upstream last rebuilt it — the
+# digest goes stale between rebuilds and CI's Trivy scan fails on base-image CVEs
+# the project cannot fix by bumping its own deps (e.g. perl-base CVE-2026-13221).
+# This pulls the current security updates at build time; the digest still pins
+# what the build starts from.
 # fonts-arphic-uming: CJK font embedded into PDF exports (apps/core/exports.py). Not fonts-noto-cjk:
 # Noto CJK ships CFF (PostScript) outlines, which reportlab can't embed ("postscript outlines are
 # not supported"); AR PL UMing is TrueType and has a Taiwan-standard face (UMingTW).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     libpq5 \
     fonts-arphic-uming \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system app && useradd --system --gid app app
 
-# COPY --chown instead of a later `chown -R` — a separate chown layer would
-# duplicate the venv + source and roughly double the image size.
-COPY --from=builder --chown=app:app /app/.venv /app/.venv
+# Root-owned on purpose: the runtime user must not be able to rewrite the venv or code.
+COPY --from=builder /app/.venv /app/.venv
 
 ARG GIT_COMMIT_SHA=unknown
 ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
 
-COPY --chown=app:app . .
+COPY . .
 # collectstatic must run with the prod settings (whitenoise manifest storage)
 # or the runtime lookup of hashed filenames fails. Dummy secret/DB values are
 # fine — only static files are gathered. Root-owned output is read-only served.

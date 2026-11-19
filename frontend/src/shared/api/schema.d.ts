@@ -223,6 +223,23 @@ export interface paths {
         patch: operations["apps_articles_views_update_article"];
         trace?: never;
     };
+    "/articles/{article_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Article */
+        post: operations["apps_articles_views_restore_article"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notifications/line/webhook": {
         parameters: {
             query?: never;
@@ -441,6 +458,7 @@ export interface components {
         Role: "user" | "admin";
         /** ArticleFilter */
         ArticleFilter: {
+            /** @description Filter by publication state (?status=draft|published). */
             status?: components["schemas"]["Status"] | null;
             /** Q */
             q?: string | null;
@@ -474,7 +492,10 @@ export interface components {
             updated_at: string;
             /** Id */
             id: number;
-            /** Owner Id */
+            /**
+             * Owner Id
+             * @description ID of the user who owns this article.
+             */
             owner_id: number;
             /** Title */
             title: string;
@@ -502,22 +523,36 @@ export interface components {
         };
         /** ArticleCreateRequest */
         ArticleCreateRequest: {
-            /** Title */
+            /**
+             * Title
+             * @description Article title.
+             */
             title: string;
             /**
              * Content
+             * @description Article body. Plain text/markdown, no HTML sanitization applied.
              * @default
              */
             content: string;
-            /** @default draft */
+            /**
+             * @description Publication state; creating as published skips a draft step.
+             * @default draft
+             */
             status: components["schemas"]["Status"];
         };
         /** ArticleUpdateRequest */
         ArticleUpdateRequest: {
-            /** Title */
+            /**
+             * Title
+             * @description Omit to leave unchanged.
+             */
             title?: string | null;
-            /** Content */
+            /**
+             * Content
+             * @description Omit to leave unchanged.
+             */
             content?: string | null;
+            /** @description Omit to leave unchanged. Setting to published triggers the notify webhook once. */
             status?: components["schemas"]["Status"] | null;
         };
         /** BaseResponse[Page[NotificationResponse]] */
@@ -812,6 +847,7 @@ export interface operations {
     apps_articles_views_list_articles: {
         parameters: {
             query?: {
+                /** @description Filter by publication state (?status=draft|published). */
                 status?: components["schemas"]["Status"] | null;
                 q?: string | null;
                 page?: number;
@@ -861,6 +897,7 @@ export interface operations {
     apps_articles_views_export_articles: {
         parameters: {
             query?: {
+                /** @description Filter by publication state (?status=draft|published). */
                 status?: components["schemas"]["Status"] | null;
                 q?: string | null;
                 format?: "xlsx" | "pdf" | "zip";
@@ -940,6 +977,28 @@ export interface operations {
                 "application/json": components["schemas"]["ArticleUpdateRequest"];
             };
         };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseResponse_ArticleResponse_"];
+                };
+            };
+        };
+    };
+    apps_articles_views_restore_article: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                article_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description OK */
             200: {

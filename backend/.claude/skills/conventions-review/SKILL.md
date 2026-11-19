@@ -15,8 +15,8 @@ suggest also running the built-in `/code-review`.
 
 - [ ] `views.py` is thin — HTTP only, delegates to a service. No ORM/business logic in views.
 - [ ] Business logic lives in `services.py`; raises `AppError`/`HttpError`, never returns HTTP responses.
-- [ ] `httpx` appears ONLY in `external_services.py`, wrapped with
-      `@handle_api_call` / `@handle_api_call_graceful` (no bare `httpx` in services/views).
+- [ ] Every outbound call in `external_services.py` is wrapped with `@handle_api_call_graceful`
+      (`httpx` outside that file is already a ruff `TID251` error — no need to re-check by hand).
 - [ ] Request/response shapes are in `schema.py` (`*Request` / `*Response` naming).
 
 ## Auth & authorization

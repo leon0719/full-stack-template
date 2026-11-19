@@ -13,10 +13,13 @@
 
 ```bash
 cp .env.local.example .env.local   # 預設值即可直接啟動，見下方變數說明
-make up                            # 啟動 API + DB + Redis + Celery worker/beat
+make up                            # migrate 後啟動 API + DB + Redis + Celery worker/beat
 ```
 
-啟動後：
+`make up` 會先跑一次性的 `migrate` service 套用 migration，跑完 api/worker/beat
+才啟動，不用再手動 `make migrate`。
+
+啟動後（dev compose 的 port 只綁 `127.0.0.1`，區網其他機器連不到）：
 
 - API：http://localhost:8000
 - Swagger 文件：http://localhost:8000/api/docs（需要登入的端點要先用 Bearer token 按「Authorize」，做法見 [../../docs/development.md](../../docs/development.md) 的「API 文件」）
@@ -63,7 +66,6 @@ make install
 | `FRONTEND_BASE_URL` | `http://localhost:5173` | LINE 登入完成後導回前端的網址 |
 | `LINE_MESSAGING_CHANNEL_ACCESS_TOKEN` / `LINE_MESSAGING_CHANNEL_SECRET` | （空） | LINE **Messaging API** channel（推播 + webhook，跟 LINE Login 是不同 channel）。空 = 推播只寫 log、webhook 回 503。本機測 webhook 用 cloudflared tunnel + **測試用** channel |
 | `EMAIL_*` | — | 本地不用設：`local.py` 固定 console backend，信件內容直接印在 worker log（標題帶 `[DEV]`），不會寄出 |
-| `DB_CONN_POOL` | `false` | psycopg3 連線池，本地用不到 |
 
 ### Tuning（皆有預設，整段可不設）
 

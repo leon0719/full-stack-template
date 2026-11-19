@@ -68,9 +68,12 @@ def update_article(request, article_id: int, payload: ArticleUpdateRequest):
     updated, just_published = ArticleService.update_owned(request.auth, article_id, payload)
     if just_published:
         # on_commit so the worker can't pick the task up before the row is
-        # committed (a no-op under autocommit, load-bearing if anyone enables
-        # ATOMIC_REQUESTS or wraps the service in transaction.atomic).
-        transaction.on_commit(lambda: notify_article_published.delay(updated.id))
+        # committed (under autocommit it runs immediately; it defers only if
+        # ATOMIC_REQUESTS is on or the service is wrapped in transaction.atomic).
+        # robust=True: the publish is already committed, so an unreachable broker
+        # drops the notification with an error log (best-effort webhook) instead
+        # of 500ing a PATCH whose retry could never re-claim the transition.
+        transaction.on_commit(lambda: notify_article_published.delay(updated.id), robust=True)
     return BaseResponse(data=updated)
 
 
@@ -79,3 +82,10 @@ def update_article(request, article_id: int, payload: ArticleUpdateRequest):
 def delete_article(request, article_id: int):
     ArticleService.delete_owned(request.auth, article_id)
     return BaseResponse()
+
+
+@articles_router.post(
+    "/{int:article_id}/restore", response=BaseResponse[ArticleResponse], throttle=[WriteRateThrottle()]
+)
+def restore_article(request, article_id: int):
+    return BaseResponse(data=ArticleService.restore_owned(request.auth, article_id))

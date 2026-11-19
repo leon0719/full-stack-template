@@ -18,7 +18,7 @@
 | `on_delete` 明確宣告 | ✅ | 目前都是 `CASCADE`（user 被刪，articles/tokens 隨之刪除）；新增 FK 前先判斷父列被刪時子列該砍還是該留（`PROTECT`/`SET_NULL`），不要漏填讓 Django 預設報錯逼你補 |
 | `related_name` 明確宣告 | ✅ | 每個 FK 都寫，避免 Django 自動產生的 `_set` 反向查詢名稱難猜 |
 | `TimestampedModel` 統一時間戳 | ✅ | `apps/core/models.py` 抽象 mixin 提供 `created_at`/`updated_at`；新 model 一律繼承，不要各自宣告 |
-| DB 連線池 | ✅ | `config/settings/base.py` 的 `DB_CONN_POOL` 分支：`DB_CONN_POOL=True` 時用 psycopg3 pool（`CONN_MAX_AGE=0` + min/max size，因為 uvicorn 自己管連線生命週期，不能疊加 Django persistent connection）；關閉時走傳統 `CONN_MAX_AGE=600` + `CONN_HEALTH_CHECKS=True`。改這段前要理解兩種模式互斥的原因，不要兩個一起開 |
+| DB 連線池 | ✅ | `config/settings/base.py`：每個 process 一個 psycopg3 pool（min 2 / max 10）。`CONN_MAX_AGE=0`（Django 文件不建議 ASGI 下用 persistent connection，連線重用交給 pool）+ `CONN_HEALTH_CHECKS=True` + `connect_timeout=5`；前面有 PgBouncer 的部署把 `_db_options["pool"]` 拿掉即可。**連線預算**：總數 ≈ `WEB_CONCURRENCY` × 10 + `CELERY_CONCURRENCY` × 10 + beat + migrate，必須低於 Postgres `max_connections`，否則調低 pool `max_size` 或改用 PgBouncer（見 `docs/deployment.md`） |
 | 過期資料清除 | ✅ | `AuthToken` 用 `expiry` 欄位；`BearerAuth` 驗證時 lazy 刪過期 token，`accounts.purge_expired_tokens`（Celery Beat 排程）補刪從未被使用過的過期 token。`AuditLog` 由 `audit.purge_old_audit_logs`（每天 03:30 UTC）刪除超過 `AUDIT_LOG_RETENTION_DAYS`（預設 365，`0` = 不清除）的紀錄；使用者被刪除後 `actor_username` **刻意保留**（稽核軌跡要能看出是誰），隱私政策要求處理刪除權（erasure）時要另外清空。通知 outbox 已結束的紀錄（`notifications.purge_old_notifications`，`NOTIFICATION_RETENTION_DAYS`，pending 的永不清）、已結束的 job（`jobs.purge_old_jobs`，`JOB_RETENTION_DAYS`）同樣由 beat 每天清。新增有時效性的資料一律比照這個「lazy 刪 + beat 排程補漏」雙保險模式 |
 | 資料庫備份/還原 | ✅ 兩層 | 第一層：託管 DB 的自動備份／PITR。第二層：prod compose 的 `backup` sidecar（`docker/db_backup/`）每 24h `pg_dump` 上傳 S3（優先 instance role、不存 key；保留期交給 bucket lifecycle），`make prod-up` 與 CD 部署前都會先跑一次、失敗即中止。還原流程與演練見 `docs/deployment.md`「備份與還原」；失敗靠 `BACKUP_HEARTBEAT_URL` 偵測（`docs/alerting.md` 第 6 節） |
 | Twelve-Factor Config | ✅ | pydantic `Settings` 讀 `.env.{ENV}`，app 不用裸 `os.getenv()` |
@@ -44,7 +44,7 @@
 | Testcontainers | ❌ 不採用 | 用常駐 `docker-compose.dev.yml` Postgres 達到同等效果（真實 DB），規模用不到動態隔離 |
 | CI Gate (lint/type/test/migration/deploy-check) | ✅ | `.github/workflows/ci.yml` |
 | Merge 前強制 CI 通過 | ⚠️ 需人工確認 | GitHub Branch Protection 設定，不在程式碼裡，需到 repo Settings 確認 |
-| 效能測試/負載測試 | ❌ 未引入 | 上游模板有 `perf/locustfile.py` + `make perf-seed`/`make perf`（見下方「效能測試/負載測試」），本專案尚未引入 `perf/` 目錄，需要時可整包搬過來 |
+| 效能測試/負載測試 | ⚠️ 基礎設施已建立，尚未建立基準 | `perf/locustfile.py` + `make perf-seed`/`make perf`，見下方「效能測試/負載測試」；還沒有實際跑過取得吞吐量/延遲基準數字 |
 
 ## Secret 輪替政策
 
@@ -53,21 +53,19 @@
 3. `SENTRY_DSN`：外洩風險低（頂多被灌垃圾事件），輪替優先度低於上述兩者。
 4. 目前都是人工流程，沒有自動化輪替機制；先確保「換完密鑰要記得重新部署」這一步不會被漏掉，還不需要額外自動化。
 
-## 效能測試/負載測試（尚未引入，需要時參考上游模板）
-
-上游 `django-ninja-backend-template` 的做法：
+## 效能測試/負載測試
 
 1. 工具選擇：用 [locust](https://locust.io/)（Python，跟專案其他工具鏈一致，用 `uv --group perf` 裝，不污染主要 `dev` 依賴）。不需要一開始就追求完整壓測平台。
-2. 涵蓋端點：`perf/locustfile.py` 涵蓋登入與核心 CRUD 這幾個高頻/高風險路徑。
+2. 涵蓋端點：`perf/locustfile.py` 只涵蓋 articles CRUD（list/create/publish/delete）。登入只走 LINE OAuth，需要真的跟 LINE 來回，壓測工具打不了，所以不測。
 3. **Throttle-aware，不是繞過 throttle**：per-IP 節流（如 `LoginThrottle`）從單一 load-gen host 打會先測到 throttle 本身而不是端點吞吐量。因此：
-   - 測試帳號池用 seed 指令（直接寫 DB + 發 token，不經過真正的註冊流程）預先建立，帳號池夠大就能線性擴大 per-user 節流端點的測試量。
-   - 登入這類路徑刻意用低 `weight`、低並發：真實產能上限本來就是設計出來的（防 credential stuffing），測的是延遲不是吞吐量。
-4. 不需要進 CI：效能測試通常執行時間長、結果易受環境影響波動，先當手動/定期執行的工具，不用一開始就卡進 CI gate。
+   - 測試帳號池用 `make perf-seed`（`apps/accounts/management/commands/seed_perf_users.py`，直接寫 DB + 發 token）預先建立，`ArticleUser` 直接帶 token 打 CRUD——這些是 per-user 節流（`WriteRateThrottle`），帳號池夠大就能線性擴大測試量。
+4. 不需要進 CI：效能測試通常執行時間長、結果易受環境影響波動，先當手動/定期執行的工具（`make perf`），不用一開始就卡進 CI gate。
 5. 現有的個別防護不等於系統性驗證：DB connection pool、`select_related` 防 N+1、throttle rate 都只是點狀防護，實際吞吐量/延遲基準需要真的跑一輪才能確認。
 
 ## 新增功能檢查清單
 
 1. Migration 有沒有跟著 model 改動一起產生
+   - 必須 expand/contract：prod 的 migrate 在舊容器被替換前就跑，每個 migration 都要讓上一版已部署的程式碼繼續運作。刪欄位／改名等程式碼不再使用後，放到下一個 release；新增 NOT NULL 欄位走 nullable → backfill → 加約束（見 `docs/deployment.md`「更新部署」）
 2. 多步驟寫入是否需要 `transaction.atomic()`
 3. 新查詢是否會在迴圈裡碰 FK → 需不需要 `select_related`/`prefetch_related`
 4. 新增的密碼/token/連線字串設定是否用 `SecretStr`

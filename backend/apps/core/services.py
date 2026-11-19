@@ -58,6 +58,21 @@ class OwnedResourceService[M: models.Model]:
 
     @classmethod
     def delete(cls, obj: M) -> None:
+        # Soft delete when the model supports it (has ``all_objects``), else a
+        # hard delete for models that don't opt into SoftDeleteModel.
         pk = obj.pk
-        obj.delete()
+        if hasattr(obj, "soft_delete"):
+            obj.soft_delete()
+        else:
+            obj.delete()
         logger.info("[Service] {m} deleted - id: {id}", m=cls.model.__name__, id=pk)
+
+    @classmethod
+    def restore_owned(cls, user: AbstractBaseUser, pk: int) -> M:
+        """Restore a soft-deleted row the user owns, else raise Http404 (IDOR
+        protection, same as get_owned_or_404)."""
+        qs: QuerySet[M] = cls.model.all_objects.filter(deleted_at__isnull=False)  # type: ignore[attr-defined]
+        obj = get_object_or_404(qs, pk=pk, **{cls.owner_field: user})
+        obj.restore()  # type: ignore[attr-defined]
+        logger.info("[Service] {m} restored - id: {id}", m=cls.model.__name__, id=pk)
+        return obj

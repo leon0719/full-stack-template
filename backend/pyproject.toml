@@ -11,7 +11,7 @@ dependencies = [
     "django-cors-headers>=4.9.0",
     "django-ninja>=1.8.0",
     "loguru>=0.8.0",
-    "psycopg[binary,pool]>=3.3.4",
+    "psycopg[binary,pool]>=3.3.6",
     "pydantic-settings>=2.16.3",
     "redis>=8.1.0",
     "tenacity>=9.2.1",
@@ -39,6 +39,12 @@ dev = [
     "pytest-django>=4.14.0",
     "ruff>=0.17.5",
     "vulture>=2.16",
+]
+# Separate group, not part of `dev`: locust is a manual/periodic tool (see
+# docs/backend-standards.md "效能測試/負載測試"), not something every
+# contributor needs installed just to run `make all`/`make test-local`.
+perf = [
+    "locust>=2.47.0",
 ]
 
 [tool.uv]
@@ -74,13 +80,23 @@ select = [
     "BLE",  # flake8-blind-except
     "DJ",   # flake8-django
     "RUF",  # Ruff-specific rules
+    "TID",  # flake8-tidy-imports (banned-api below enforces layering)
 ]
 
+# Layering rules enforced by lint, not by review: an AI agent (or human) gets an error
+# the moment they import these in the wrong layer.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"httpx".msg = "Third-party HTTP belongs in apps/<app>/external_services.py, wrapped with @handle_api_call_graceful."
+"logging".msg = "Use the loguru `logger` (config/logging.py bridges stdlib logging)."
+
 [tool.ruff.lint.per-file-ignores]
-# Tests may use assert and hardcoded test credentials.
-"**/tests.py" = ["S101", "S105", "S106"]
-"**/test_*.py" = ["S101", "S105", "S106"]
-"**/conftest.py" = ["S101", "S105", "S106"]
+# Tests may use assert and hardcoded test credentials, and import banned modules to mock them.
+"**/tests.py" = ["S101", "S105", "S106", "TID251"]
+"**/test_*.py" = ["S101", "S105", "S106", "TID251"]
+"**/conftest.py" = ["S101", "S105", "S106", "TID251"]
+# The layers allowed to touch httpx / stdlib logging (see banned-api above).
+"**/external_services.py" = ["TID251"]
+"config/**" = ["TID251"]
 # Boundary layers (HTTP views / Celery tasks) may catch-all and convert to 500 + log.
 # B008: Django Ninja uses Query()/Path()/Body() as parameter defaults by design.
 "**/views.py" = ["BLE001", "B008"]

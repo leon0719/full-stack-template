@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib import admin
-from django.urls import include, path
+from django.http import HttpRequest, JsonResponse
+from django.urls import URLPattern, URLResolver, include, path
 from ninja import NinjaAPI
 
 from apps.accounts.views import auth_router
@@ -8,7 +9,8 @@ from apps.articles.views import articles_router
 from apps.health.views import health_router
 from apps.jobs.views import jobs_router
 from apps.notifications.views import notifications_router
-from config.exceptions import register_exception_handlers
+from config.errors import ErrorCode
+from config.exceptions import error_body, register_exception_handlers
 from config.ninja_config import ORJSONParser, ORJSONRenderer
 
 api = NinjaAPI(
@@ -19,6 +21,7 @@ api = NinjaAPI(
     # Expose interactive docs only outside production to avoid leaking the full
     # API schema publicly. Set DEBUG=True (local) to browse /api/docs.
     docs_url="/api/docs" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
 )
 register_exception_handlers(api)
 api.add_router("", health_router, tags=["health"])
@@ -29,7 +32,24 @@ api.add_router("/jobs", jobs_router)
 
 
 # Static files (admin CSS/JS) are served by whitenoise middleware in every env.
-urlpatterns = [
+# Non-ninja routes (unknown paths, admin) keep the API's BaseResponse error envelope.
+# Django only consults these when DEBUG=False, and calls them with varying
+# signatures (handler500 takes no exception), hence **_kwargs / *_args.
+def _json_error(message: str, reason: ErrorCode, status: int):
+    def handler(request: HttpRequest, *_args: object, **_kwargs: object) -> JsonResponse:
+        return JsonResponse(error_body(status, message, reason), status=status)
+
+    return handler
+
+
+handler404 = _json_error("Not found", ErrorCode.NOT_FOUND, 404)
+handler500 = _json_error("Internal server error", ErrorCode.INTERNAL_ERROR, 500)
+# DisallowedHost/SuspiciousOperation is raised in middleware, before ninja's handlers.
+handler400 = _json_error("Bad request", ErrorCode.BAD_REQUEST, 400)
+handler403 = _json_error("Permission denied", ErrorCode.PERMISSION_DENIED, 403)
+
+
+urlpatterns: list[URLPattern | URLResolver] = [
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),
     path("", api.urls),

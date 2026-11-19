@@ -65,7 +65,7 @@ Client → Uvicorn (ASGI) → Django Ninja API (config/urls.py)
 - **schema.py** — Ninja/Pydantic request & response schemas (`*Request` / `*Response`).
 - **services.py** — business logic. Stateless; raises `AppError`/`HttpError`; no `httpx`.
 - **external_services.py** — the *only* place third-party HTTP calls (`httpx`) live; wrap each call
-  with `@handle_api_call` / `@handle_api_call_graceful` (`config/external_api_handler.py`).
+  with `@handle_api_call_graceful` (`config/external_api_handler.py`). Enforced by ruff `TID251`.
 - **utils.py** — pure helpers, no side effects, no DB.
 - **tasks.py** — Celery `@shared_task`s; pass primitive args; idempotent (broker uses `acks_late`).
 - **models.py** — explicit `on_delete` + `related_name`; index real query paths.
@@ -110,9 +110,9 @@ Reasoning lives in the `❌` rows of `docs/backend-standards.md` / `docs/api-sta
 - No `@paginate` decorator — its output can't be wrapped in `BaseResponse`; call `paginate_queryset` in the view.
 
 ## Code Style
-- Line length 120; ruff rules in `pyproject.toml` (incl. `DTZ`, `BLE`, `S`)
+- Line length 120; ruff rules in `pyproject.toml` (incl. `DTZ`, `BLE`, `S`, `TID`)
 - Datetimes timezone-aware — `django.utils.timezone.now()`
-- loguru `logger`, never stdlib `logging`. 4xx → `logger.warning`, 5xx → `logger.error`
+- loguru `logger`, never stdlib `logging` (ruff `TID251`). 4xx → `logger.warning`, 5xx → `logger.error`
 - Blind `except Exception` only in boundary layers (`views.py` / `tasks.py`), always log + convert
 - Async views: wrap ORM calls in `sync_to_async`
 - Test markers `unit` / `integration` / `slow` (strict); shared fixtures in `conftest.py`

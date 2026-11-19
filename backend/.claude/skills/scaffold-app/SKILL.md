@@ -25,7 +25,7 @@ apps/<name>/
   services.py            # <Resource>Service(OwnedResourceService[<Model>]) from apps.core.services; declare model + select_related
   views.py               # Router(tags=[...], auth=BearerAuth()); thin — delegate to services
   tasks.py               # @shared_task, primitive args, idempotent (only if needed)
-  external_services.py   # only place httpx lives; wrap with @handle_api_call(_graceful) (only if needed)
+  external_services.py   # only place httpx lives; wrap with @handle_api_call_graceful (only if needed)
   migrations/__init__.py # empty
   tests.py               # @pytest.mark.unit (schema/pure) + @pytest.mark.integration (DB/endpoints)
 ```

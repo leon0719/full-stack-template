@@ -14,7 +14,7 @@
     "type-check": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
-    "gen:api": "openapi-typescript openapi.json -o src/shared/api/schema.d.ts"
+    "gen:api": "bun x --package typescript@5.9.3 --package openapi-typescript@7.13.0 openapi-typescript openapi.json -o src/shared/api/schema.d.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^7.0.7",
@@ -52,7 +52,6 @@
     "@vitejs/plugin-react": "^6.3.0",
     "babel-plugin-react-compiler": "^1.0.0",
     "jsdom": "^31.0.1",
-    "openapi-typescript": "^7.13.0",
     "steiger": "^0.10.0",
     "typescript": "~7.0.2",
     "vite": "^8.3.8",

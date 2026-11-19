@@ -111,6 +111,72 @@ def test_patch_without_field_does_not_clear_it(user, auth_headers):
 
 
 @pytest.mark.integration
+def test_patch_explicit_null_returns_422(user, auth_headers):
+    """NOT NULL columns: an explicit null must be a 422, not an IntegrityError/500."""
+    client = Client()
+    created = _create(client, auth_headers).json()["data"]
+    resp = client.patch(
+        f"/articles/{created['id']}", data={"title": None}, content_type="application/json", headers=auth_headers
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.integration
+def test_overlong_content_returns_422(user, auth_headers):
+    resp = _create(Client(), auth_headers, content="x" * 100_001)
+    assert resp.status_code == 422
+
+
+@pytest.mark.integration
+def test_publish_returns_200_when_broker_is_unreachable(
+    user, auth_headers, monkeypatch, django_capture_on_commit_callbacks
+):
+    """The publish is committed before the enqueue; a broker failure must be logged, not 500 the PATCH."""
+    from kombu.exceptions import OperationalError
+
+    def broker_down(article_id):
+        raise OperationalError("broker unreachable")
+
+    monkeypatch.setattr("apps.articles.views.notify_article_published.delay", broker_down)
+    client = Client()
+    created = _create(client, auth_headers, title="draft", status="draft").json()["data"]
+
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        resp = client.patch(
+            f"/articles/{created['id']}",
+            data={"status": "published"},
+            content_type="application/json",
+            headers=auth_headers,
+        )
+    assert len(callbacks) == 1  # enqueue attempted, its error swallowed by robust=True
+    assert resp.status_code == 200
+    assert Article.objects.get(id=created["id"]).status == Article.Status.PUBLISHED
+
+
+@pytest.mark.integration
+def test_list_pagination_is_stable_when_created_at_ties(user, auth_headers):
+    """OFFSET pagination over a non-unique order can repeat/skip rows; the -id tiebreaker prevents it."""
+    from django.db import connection as conn
+    from django.test.utils import CaptureQueriesContext
+    from django.utils import timezone
+
+    Article.objects.bulk_create(Article(owner=user, title=f"tiebreak {i}") for i in range(5))
+    Article.objects.update(created_at=timezone.now())
+    client = Client()
+
+    seen: list[int] = []
+    for page in (1, 2, 3):
+        with CaptureQueriesContext(conn) as ctx:
+            resp = client.get(f"/articles?page={page}&page_size=2", headers=auth_headers)
+        assert resp.status_code == 200
+        seen += [item["id"] for item in resp.json()["data"]["items"]]
+        # SQLite happens to return ties in a stable order, so assert the tiebreaker is in the SQL itself.
+        assert any('"id" DESC' in q["sql"] and "LIMIT" in q["sql"] for q in ctx.captured_queries)
+
+    assert sorted(seen) == sorted(Article.objects.values_list("id", flat=True))
+
+
+@pytest.mark.integration
 def test_page_size_is_capped_at_max(user, auth_headers, settings):
     # Real HTTP path: the view's paginator (created at import time with the
     # real MAX_PAGE_SIZE) must cap an oversized ?page_size=.
@@ -131,7 +197,64 @@ def test_delete_article(user, auth_headers):
     created = _create(client, auth_headers, title="bye").json()["data"]
     resp = client.delete(f"/articles/{created['id']}", headers=auth_headers)
     assert resp.status_code == 200
+    # Soft delete: gone from the default manager, but the row still exists.
     assert not Article.objects.filter(id=created["id"]).exists()
+    assert Article.all_objects.filter(id=created["id"]).exists()
+
+
+@pytest.mark.integration
+def test_deleted_article_is_hidden_from_get_and_list(user, auth_headers):
+    client = Client()
+    created = _create(client, auth_headers, title="bye").json()["data"]
+    client.delete(f"/articles/{created['id']}", headers=auth_headers)
+
+    assert client.get(f"/articles/{created['id']}", headers=auth_headers).status_code == 404
+    assert client.get("/articles", headers=auth_headers).json()["data"]["count"] == 0
+
+
+@pytest.mark.integration
+def test_restore_article(user, auth_headers):
+    client = Client()
+    created = _create(client, auth_headers, title="bye").json()["data"]
+    client.delete(f"/articles/{created['id']}", headers=auth_headers)
+
+    resp = client.post(f"/articles/{created['id']}/restore", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["data"]["id"] == created["id"]
+    assert Article.objects.filter(id=created["id"]).exists()
+
+
+@pytest.mark.integration
+def test_restore_other_users_article_returns_404(user, auth_headers, other_auth_headers):
+    client = Client()
+    created = _create(client, auth_headers, title="mine").json()["data"]
+    client.delete(f"/articles/{created['id']}", headers=auth_headers)
+
+    resp = client.post(f"/articles/{created['id']}/restore", headers=other_auth_headers)
+    assert resp.status_code == 404
+
+
+@pytest.mark.integration
+def test_restore_non_deleted_article_returns_404(user, auth_headers):
+    client = Client()
+    created = _create(client, auth_headers, title="never deleted").json()["data"]
+
+    resp = client.post(f"/articles/{created['id']}/restore", headers=auth_headers)
+    assert resp.status_code == 404
+
+
+@pytest.mark.integration
+def test_deleting_owner_cascades_to_soft_deleted_articles(user, auth_headers):
+    """The deletion collector must see soft-deleted rows too (base_manager_name
+    = "all_objects"), or cascading-deleting the owner would leave them orphaned."""
+    client = Client()
+    created = _create(client, auth_headers, title="bye").json()["data"]
+    client.delete(f"/articles/{created['id']}", headers=auth_headers)
+    assert Article.all_objects.filter(id=created["id"]).exists()
+
+    user.delete()
+
+    assert not Article.all_objects.filter(id=created["id"]).exists()
 
 
 @pytest.mark.integration
@@ -326,14 +449,15 @@ def test_article_writes_are_audited(user, auth_headers):
         headers=auth_headers,
     )
     client.delete(f"/articles/{created['id']}", headers=auth_headers)
+    client.post(f"/articles/{created['id']}/restore", headers=auth_headers)
 
     entries = list(AuditLog.objects.filter(target_type="articles.article", target_id=str(created["id"])).order_by("id"))
-    assert [e.action for e in entries] == ["create", "update", "delete"]
+    assert [e.action for e in entries] == ["create", "update", "delete", "restore"]
     assert entries[0].changes is not None
     assert entries[0].changes["title"] == [None, "v1"]
     assert entries[1].changes == {"title": ["v1", "v2"]}
     assert entries[2].changes is not None
-    assert entries[2].changes["title"] == ["v2", None]  # hard delete: every field goes to None
+    assert set(entries[2].changes) == {"deleted_at"}  # soft delete: the diff is the deleted_at stamp
     assert all(e.actor_id == user.id and e.metadata.get("ip") == "127.0.0.1" for e in entries)
 
 

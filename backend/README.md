@@ -106,8 +106,11 @@ fails silently or insecurely if skipped:
 3. **Get the proxy trust contract right, or per-IP throttling can be bypassed.**
    The per-IP rate limit on `POST /auth/line/exchange` keys on the client IP
    derived from `X-Forwarded-For`. Two settings must agree with your actual topology:
-   - `FORWARDED_ALLOW_IPS` — the proxy IP/CIDR uvicorn trusts for `X-Forwarded-*`.
-     The example value (`172.16.0.0/12`) matches the shipped caddy service.
+   - `FORWARDED_ALLOW_IPS` — the proxy IPs/CIDRs uvicorn trusts for `X-Forwarded-*`
+     (decides `REMOTE_ADDR`, used by access logs and the audit log's `ip`). It must list
+     every hop: the example value is `172.16.0.0/12` (the shipped caddy service) plus the
+     Cloudflare IP ranges from the Caddyfile; with `172.16.0.0/12` alone, `REMOTE_ADDR`
+     resolves to the Cloudflare edge.
    - `NINJA_NUM_PROXIES` — the number of trusted proxy hops (`2` for the shipped
      Cloudflare + Caddy topology; the Caddyfile's `trusted_proxies` covers the
      Cloudflare IP ranges). Set it too low and a direct caller can spoof
@@ -134,7 +137,7 @@ fails silently or insecurely if skipped:
 ```
 config/            # Project config: settings, urls, celery, logging, exceptions
   settings/        # base.py + local.py / prod.py
-  external_api_handler.py   # @handle_api_call(_graceful) — resilient httpx wrappers
+  external_api_handler.py   # @handle_api_call_graceful — resilient httpx wrapper
 apps/
   core/            # Shared Celery tasks + TimestampedModel mixin
   health/          # Health/readiness endpoints

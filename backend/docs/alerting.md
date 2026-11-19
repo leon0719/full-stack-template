@@ -108,11 +108,16 @@ beat 掛掉是最安靜的故障：排程不再觸發，沒有例外、沒有錯
 實作在 `apps/core/tasks.py::beat_heartbeat`。ping 失敗只會留下 warning，
 不會讓 beat 掛掉——真正的告警來自監控端「沒收到 ping」。
 
+這支任務是 beat 排進 broker、**由 worker 執行**時才送出 ping，所以它證明的是
+beat + broker + worker 整條鏈路端到端都通：beat 掛、broker 不通、**worker 全掛**，
+ping 都會停。這也是 worker 全掛時唯一會響的告警（第 4 節的積壓檢查同樣要靠
+worker 執行），所以 `BEAT_HEARTBEAT_URL` **強烈建議一定要填**。
+
 ---
 
 ## 4. Celery 佇列積壓
 
-worker 全掛或處理不及時，任務會在佇列裡越積越多。
+worker 處理不及時，任務會在佇列裡越積越多。
 **沒有任何一個任務會失敗**（它們只是排隊排不到），所以 Sentry 完全不會有動靜。
 
 `apps/core/tasks.py::check_queue_depth` 每 5 分鐘直接問 broker 佇列長度，
@@ -122,8 +127,10 @@ error——於是它會走上面第 1 節設好的同一條 Slack 通道。
 門檻要依實際流量調整：平常尖峰若就有 800，設 1000 會一直誤報。
 先觀察一段時間再決定，寧可設高一點也不要讓大家學會忽略它。
 
-> 這裡刻意問 broker 而不是用 `celery inspect`——`inspect` 是問 worker，
-> 但 worker 全掛的時候正是最需要這個數字的時刻。
+> 這裡直接問 broker（Redis `LLEN`）而不是用 `celery inspect`，不必等 worker 回覆。
+> 但 `check_queue_depth` 本身也是排在同一條佇列上的任務，**要有 worker 在線才會跑**：
+> 它抓得到「worker 處理不及」，抓不到「worker 全掛」。worker 全掛要靠第 3 節的
+> 心跳停止來偵測——`BEAT_HEARTBEAT_URL` 沒填、worker 又全掛時，**什麼都不會響**。
 
 ---
 
@@ -175,8 +182,10 @@ LINE Login 與 Messaging API channel 不在同一個 provider（userId 對不上
 - [ ] Sentry 的 Slack integration 已接、alert rule 已建
 - [ ] 已實際觸發一次測試事件，**確認 Slack 真的收到**
 - [ ] 外部監控在打 `/health/ready`（不是 `/health/live`）
-- [ ] `BEAT_HEARTBEAT_URL` 已填，且監控端已看到第一次 ping
+- [ ] `BEAT_HEARTBEAT_URL` 已填，且監控端已看到第一次 ping（worker 全掛時唯一會響的告警）
 - [ ] `CELERY_QUEUE_DEPTH_ALERT_THRESHOLD` 已依實際流量調整
 - [ ] `SLACK_WEBHOOK_URL` secret 已設（CI 失敗通知）
 - [ ] 以上通知都進到**同一個** channel，且該 channel 沒有被值班的人靜音
+- [ ] `/admin/` 已用 Caddyfile allowlist 或 Cloudflare Zero Trust 限制來源（admin 是帳密登入、沒有 rate limit，見 [caddy.md](caddy.md#保護-admin上線必做)）
+- [ ] 託管 DB 已開自動備份／PITR，且**實際演練還原過一次**
 - [ ] `BACKUP_S3_URI` 已設（或確定只靠託管 DB 的 PITR），`BACKUP_HEARTBEAT_URL` 已設且監控端看到第一次 ping

@@ -8,9 +8,9 @@
 
 | 項目 | 狀態 | 備註 |
 |---|---|---|
-| `httpx` 只能出現在 `external_services.py` | ✅ | CLAUDE.md 明文規定；views/services 不直接發 HTTP |
-| 統一包裝：`@handle_api_call` / `@handle_api_call_graceful` | ✅ | `config/external_api_handler.py`：tenacity 重試 + loguru + 轉譯成 `HttpError`，不洩漏原始 httpx 例外 |
-| 兩種裝飾器的選擇 | ✅ | 呼叫端**需要結果**（呼叫失敗就該讓這個 request 失敗）→ `handle_api_call`；**best-effort 副作用**（失敗不該拖垮主流程，如發通知）→ `handle_api_call_graceful` |
+| `httpx` 只能出現在 `external_services.py` | ✅ | ruff `TID251` banned-api 強制（`pyproject.toml`）；views/services 一 import 就 lint 失敗 |
+| 統一包裝：`@handle_api_call_graceful` | ✅ | `config/external_api_handler.py`：tenacity 重試 + loguru，重試耗盡後降級成 `default_return`，不洩漏原始 httpx 例外 |
+| 呼叫端需要結果時 | ✅ | 裝飾器只負責 best-effort 降級。呼叫失敗就該讓這個 request 失敗的情境，由 service 層判斷 `default_return` 並丟 `AppError`／`HttpError`，錯誤語意留在知道領域含義的那一層 |
 | 明確設定 timeout | ✅ | 每個外部呼叫都要設（如 `_WEBHOOK_TIMEOUT_SECONDS = 5.0`），不要吃 httpx 預設值 |
 | Webhook 接收（LINE Login OAuth callback） | ✅ | `apps/accounts` 的 LINE OAuth 交換屬於本專案獨有整合層，見 `backend/CLAUDE.md` 說明；不在上游 `apps/articles` webhook 範例的涵蓋範圍內 |
 | Circuit breaker | ❌ 不採用 | tenacity 重試 + graceful 降級已經夠用；這個規模還沒有「同一個壞掉的第三方被打爆」的量級問題，加 circuit breaker 是過度設計 |
@@ -32,9 +32,10 @@
 | Task 傳 primitive 參數，不傳 model instance | ✅ | CLAUDE.md 規定；`notify_article_published(article_id: int)` 而非傳 `Article` 物件 |
 | Task 必須冪等 | ✅ | `CELERY_TASK_ACKS_LATE=True` + `CELERY_TASK_REJECT_ON_WORKER_LOST=True`，worker 掛掉時任務會重跑，任務本身要能重複執行不出錯 |
 | 關機時仍在跑的任務 | ✅ | prod worker 設 `REMAP_SIGTERM=SIGQUIT` + `CELERY_WORKER_SOFT_SHUTDOWN_TIMEOUT=30`：SIGTERM 後執行中的任務有 30 秒收尾，沒做完的被取消並**立刻退回佇列**（acks_late），不必等 `visibility_timeout`（1h）。代價是有任務在跑時關機固定等滿 30 秒。任務被中途取消再重跑，所以仍必須冪等；`stop_grace_period`（60s）必須大於 soft timeout，否則會先被 SIGKILL 回到舊的 1 小時延遲 |
+| Worker process 崩潰的重送沒有上限 | ⚠️ 已知風險 | `reject_on_worker_lost` 會把任務無限次重新排回佇列：一支「必定讓 process 崩潰」的任務（segfault、OOM kill）會一直循環，而且因為每次都被重新排回，**不會觸發 `task_failure` signal**（`config/alerting.py` 的結構化失敗 log 收不到）。症狀是同一個 task id 反覆出現、佇列積壓；看到時要手動清掉該訊息 |
 | `acks_late` vs `autoretry_for` 的分工 | ✅ | `acks_late`：worker **process 死掉**時重跑（防的是基礎設施故障）；`autoretry_for`：task **內部丟例外**時重跑（防的是暫時性錯誤，如 DB 連線斷線）。兩者防的是不同層的失敗，見 `apps/articles/tasks.py` 註解 |
 | `autoretry_for` 只抓真正暫時性的例外 | ✅ | `autoretry_for=(OperationalError,)`，不要用裸 `Exception`——用裸 `Exception` 會把真正的 bug（`KeyError`/`TypeError`）也重試 3 次才報錯，白白延遲告警 |
-| 不要疊加兩層 retry | ✅ | task 的 `autoretry_for` 不要疊在 `@handle_api_call`（本身有 tenacity 重試）之上，重試次數會相乘；fire-and-forget 的外部呼叫走 `@handle_api_call_graceful`（自己吞錯誤），task 本身不需要再重試 |
+| 不要疊加兩層 retry | ✅ | task 的 `autoretry_for` 不要疊在 `@handle_api_call_graceful`（本身有 tenacity 重試）之上，重試次數會相乘；fire-and-forget 的外部呼叫走 `@handle_api_call_graceful`（自己吞錯誤），task 本身不需要再重試 |
 | 「純訊號」任務絕不可拋例外 | ✅ | `core.beat_heartbeat`／`core.check_queue_depth`：這兩支任務存在的目的是把「服務悄悄壞掉」變成可偵測事件；如果自己丟例外，Celery 會記成「任務失敗」，跟它們真正要回報的訊號（心跳有沒有到、佇列有沒有塞）混在一起，見 `apps/core/tasks.py` |
 | `@shared_task(name=...)` 明確命名 | ✅ | 每個 task 都寫 `name="app.task_name"`，不要依賴自動推導的 dotted path（模組搬家會跟著壞掉） |
 | Soft/hard time limit | ✅ | `CELERY_TASK_SOFT_TIME_LIMIT=300` / `CELERY_TASK_TIME_LIMIT=360`；長任務要處理 `SoftTimeLimitExceeded` 或拆更小的 task |
@@ -65,9 +66,9 @@
 |---|---|---|
 | 參考實作 | ✅ | `apps/articles/external_services.py` 的 `notify_article_published_webhook()` |
 | Best-effort，不拖垮主流程 | ✅ | `@handle_api_call_graceful`；第三方端點掛掉不能讓文章發佈失敗 |
-| 由 Celery task 呼叫，非同步發送 | ✅ | `apps/articles/tasks.py`，不在 request-response 週期內直接呼叫，避免拖慢 API 回應 |
+| 由 Celery task 呼叫，非同步發送 | ✅ | `apps/articles/tasks.py`，不在 request-response 週期內直接呼叫，避免拖慢 API 回應。enqueue 用 `transaction.on_commit(..., robust=True)`（`apps/articles/views.py`）：發布已經 commit，broker 不通時只記 error log、**這次 webhook 直接丟掉**，不讓 PATCH 回 500（重試也無法再認領 draft→published 轉換） |
 | 功能旗標：URL 為空即停用 | ✅ | `ARTICLE_PUBLISHED_WEBHOOK_URL` 空字串 = 整合關閉，不用額外的 boolean flag |
-| At-least-once + 消費端去重欄位 | ✅ | payload 帶 `event_id`（用 Celery task id，重試/重送都穩定），消費端要拿它做去重，不能假設 exactly-once |
+| Best-effort 投遞 + 消費端去重欄位 | ⚠️ 非 at-least-once | 不保證送達：broker 不通時 enqueue 就丟掉（見上），暫時性錯誤重試用完、或對方回 HTTP 錯誤時也直接放棄。也可能重複（worker 崩潰重送），所以 payload 帶 `event_id`（用 Celery task id，重試/重送都穩定），消費端要拿它做去重，不能假設 exactly-once。需要保證送達時照下方「通知 outbox」的模式（outbox 表 + beat 補送 + 放棄告警） |
 
 ## 讀穿透型業務快取 / 失效策略（要加的話注意這幾點）
 

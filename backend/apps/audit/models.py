@@ -31,6 +31,7 @@ class AuditLog(models.Model):
         CREATE = "create", "Created"
         UPDATE = "update", "Updated"
         DELETE = "delete", "Deleted"
+        RESTORE = "restore", "Restored"
         EXPORT = "export", "Exported"
         # Django admin 的異動(AuditedAdminMixin)。跟 API 的 create/update/delete 分開,
         # 查「誰繞過 API 直接在後台改資料」時一個 filter 就看得到。

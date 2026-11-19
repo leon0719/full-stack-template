@@ -29,5 +29,9 @@
 	# }
 	# respond @admin_blocked 403
 
-	reverse_proxy api:8000
+	# 單一 api 容器重建時，Caddy 會暫留請求並重試連線，而不是直接回 502。
+	reverse_proxy api:8000 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
 }

@@ -21,7 +21,13 @@ proxy（橘雲）。這是本模板內建的對外方式（`docker-compose.prod.
     「Full (strict)」。
 - **真實 client IP**：Cloudflare 把訪客 IP 放進 `X-Forwarded-For`，Caddyfile 的
   `trusted_proxies`（Cloudflare IP 段）讓 Caddy 保留它並附加 edge IP 後轉給
-  api；`NINJA_NUM_PROXIES=2` 對應這兩層，per-IP 節流才拿得到真實來源。
+  api。api 端有兩個設定各管一件事：
+  - `NINJA_NUM_PROXIES=2` 對應這兩層，**只影響 per-IP 節流**的 ident（ninja 從
+    `X-Forwarded-For` 取倒數第 2 個）。
+  - `FORWARDED_ALLOW_IPS` 決定 uvicorn 把 `REMOTE_ADDR` 解析成誰（access log、
+    AuditLog `metadata.ip` 都用它）。uvicorn 從 XFF 右邊往左跳過受信任的 IP，所以
+    清單必須是 compose bridge 網段 **加上** Cloudflare IP 段；只信任
+    `172.16.0.0/12` 時，拿到的會是 Cloudflare edge IP。
 
 橘雲帶來的好處：源站 IP 不公開、免費 WAF/DDoS 緩解、edge 憑證全自動。
 代價：對外可用性綁在 Cloudflare 上。
@@ -55,8 +61,9 @@ ALLOWED_HOSTS=api.your-domain.com
 # 只填 API 自己的 origin；前端 origin 由 CORS_ALLOWED_ORIGINS 自動併入
 CSRF_TRUSTED_ORIGINS=https://api.your-domain.com
 
-# caddy 從 compose bridge 網段連進 api 容器（.env.prod.example 預設值即是）
-FORWARDED_ALLOW_IPS=172.16.0.0/12
+# uvicorn 信任的 proxy：caddy 所在的 compose bridge 網段 + Cloudflare IP 段
+# （與 docker/Caddyfile 的 trusted_proxies 同一份清單，.env.prod.example 預設值即是）
+FORWARDED_ALLOW_IPS=172.16.0.0/12,173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32
 
 # 反代層數：Cloudflare edge + Caddy 共 2 層（.env.prod.example 已設）
 NINJA_NUM_PROXIES=2
@@ -81,15 +88,22 @@ make prod-up
    `docker compose -f docker/docker-compose.prod.yml logs caddy` 沒有 TLS
    handshake 錯誤。
 
-3. **真實 client IP（重要，per-IP 節流靠它）**：打一個會留 log 的端點
-   （例如故意輸錯密碼的 `POST /auth/login`），`make prod-logs` 看 api 的
-   warning log 內的 client IP，應是你的真實對外 IP，而**不是** Cloudflare 的
-   IP（104.x／172.6x 等）也不是 `172.1x` bridge IP。看到 Cloudflare IP 表示
-   `NINJA_NUM_PROXIES` 不是 2 或 Caddyfile 的 `trusted_proxies` 沒生效。
+3. **真實 client IP**：在 `/admin/` 故意輸錯密碼登入一次，`make prod-logs` 看
+   api 的 uvicorn access log 那一行的 client IP（或 Django admin 該筆
+   `admin_login_failed` AuditLog 的 `metadata.ip`），應是你的真實對外 IP，
+   而**不是** Cloudflare 的 IP（104.x／172.6x 等）也不是 `172.1x` bridge IP。
+   看到 Cloudflare IP 表示 `FORWARDED_ALLOW_IPS` 沒含 Cloudflare IP 段、或
+   Caddyfile 的 `trusted_proxies` 沒生效；看到 bridge IP 表示
+   `FORWARDED_ALLOW_IPS` 沒含 `172.16.0.0/12`。`NINJA_NUM_PROXIES` 不影響這裡
+   看到的 IP（它只決定 per-IP 節流的 ident），拓撲是 Cloudflare + Caddy 時維持 2。
 
-## 保護 `/admin/`（建議）
+## 保護 `/admin/`（上線必做）
 
-`/admin/` 沒有 rate limit（`.env.prod.example` 內有註記）。兩個選項擇一：
+`/admin/` 是 Django 內建的 session 登入：**只驗帳密**（一般使用者走的 LINE 登入
+不適用於此），也沒有 rate limit。登入成功／失敗會寫進 AuditLog
+（`admin_login_success` / `admin_login_failed`，含 `ip`、`request_id`），但那只是
+事後可查，擋不住暴力破解。所以限制 `/admin/` 的來源是**上線前的必要條件，不是
+選配**。兩個選項擇一：
 
 **選項 A —— Caddyfile IP allowlist**（有固定 IP 時最簡單）：
 `docker/Caddyfile` 內已附註解掉的範例，取消註解並換成你的 IP/CIDR：
@@ -126,7 +140,7 @@ Allow policy（如 Include → Emails 填自己的信箱，登入走 one-time PI
 | 400 Bad Request (DisallowedHost) | `ALLOWED_HOSTS` 沒含對外域名 | 加上 `api.your-domain.com` 後重啟 |
 | admin 登入 403 CSRF | `CSRF_TRUSTED_ORIGINS` 沒設 | 填 `https://api.your-domain.com` |
 | 前端寫入請求 403 `csrf_failed`（cookie 登入） | 前端 origin 不在 `CORS_ALLOWED_ORIGINS`（它同時決定 CSRF 信任），或前端沒帶 `X-CSRFToken` | 確認 `CORS_ALLOWED_ORIGINS` 含前端 `https://` origin；前端先 `GET /auth/csrf` |
-| api log 的 client IP 是 Cloudflare IP | `NINJA_NUM_PROXIES` 不是 2 或 `trusted_proxies` 沒生效 | 見步驟三第 3 點 |
+| api log 的 client IP 是 Cloudflare IP | `FORWARDED_ALLOW_IPS` 沒含 Cloudflare IP 段，或 `trusted_proxies` 沒生效（與 `NINJA_NUM_PROXIES` 無關，它只影響節流） | 見步驟三第 3 點 |
 | admin allowlist 擋不住人 | 範例用了 `remote_ip` | 改用 `client_ip` matcher |
 
 ## 不使用內建 Caddy 時

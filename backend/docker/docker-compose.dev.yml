@@ -12,22 +12,46 @@ x-app-base: &app-base
     - uv_cache:/root/.cache/uv
   env_file:
     - ../.env.local
+  environment:
+    # FROZEN (not LOCKED): never rewrite the bind-mounted uv.lock, and don't fail on
+    # lockfile-format drift between the container's uv and the host's newer uv.
+    - UV_FROZEN=1
+    # colima (virtiofs) only forwards chmod/attribute inotify events, not real
+    # write events, so watchfiles-based reload (uvicorn --reload, and the
+    # watchfiles wrapper on worker/beat) silently misses code changes
+    # (https://github.com/abiosoft/colima/issues/1244, #1341). Force
+    # polling instead — it doesn't depend on the VM forwarding filesystem events
+    # at all. 1000ms delay trades a bit of reload latency for lower CPU usage
+    # from polling a bind-mounted tree.
+    - WATCHFILES_FORCE_POLLING=true
+    - WATCHFILES_POLL_DELAY_MS=1000
+    - UV_LINK_MODE=copy
+    # Only uvicorn (api) reads this; kept here since a service-level environment
+    # list would replace, not extend, this one.
+    - UVICORN_HOST=0.0.0.0
   networks:
     - app
 
 services:
+  # One-off job: apply migrations once before api/worker/beat start, so they
+  # don't race each other (or query tables that don't exist yet) on first `make up`.
+  migrate:
+    <<: *app-base
+    command: ["uv", "run", "python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
   api:
     <<: *app-base
     ports:
-      - "8000:8000"
-    environment:
-      - UV_LINK_MODE=copy
-      - UVICORN_HOST=0.0.0.0
+      - "127.0.0.1:8000:8000"
     # No collectstatic in dev — whitenoise serves via staticfiles finders when DEBUG=True.
-    command: >
-      sh -c "uv run python manage.py migrate --noinput &&
-             uv run python uvicorn_run.py"
+    command: ["uv", "run", "python", "uvicorn_run.py"]
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -48,7 +72,7 @@ services:
       POSTGRES_DB: app
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - ../data/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -62,7 +86,7 @@ services:
   redis:
     image: redis:8-alpine@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - ../data/redis:/data
     healthcheck:
@@ -75,14 +99,17 @@ services:
 
   celery-worker:
     <<: *app-base
+    # watchfiles restarts the worker on .py changes under apps/ and config/ (celery has no reload).
     command: >
-      uv run celery -A config worker
-      --loglevel=info
-      --concurrency=2
+      uv run watchfiles --filter python
+      "celery -A config worker --loglevel=info --concurrency=2"
+      apps config
     # Workers need the DB schema + the broker, not a healthy API. Depending on
     # the API (as before) kept workers down whenever the API was unhealthy, and
     # diverged from prod (which only waits on the migrate job). See prod compose.
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -91,11 +118,13 @@ services:
   celery-beat:
     <<: *app-base
     command: >
-      uv run celery -A config beat
-      --loglevel=info
-      --scheduler django_celery_beat.schedulers:DatabaseScheduler
-    # Same rationale as celery-worker: depend on db + redis, not the API.
+      uv run watchfiles --filter python
+      "celery -A config beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+      apps config
+    # Same rationale as celery-worker: depend on migrate + db + redis, not the API.
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:

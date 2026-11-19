@@ -8,7 +8,7 @@
 
 | 情境 | 選擇 | 理由 |
 | --- | --- | --- |
-| 新主機、只跑這一個服務、前面有 Cloudflare 橘雲 | **Caddy**（預設） | 設定跟著 repo、隨 `make prod-up` 一起起來；`tls internal` 免申請憑證 |
+| 新主機、只跑這一個服務、前面有 Cloudflare 橘雲 | **Caddy**（預設） | 設定跟著 repo、隨 `make prod-up` 一起起來；`tls internal` 免申請憑證；重啟時 `lb_try_duration` 暫留請求 |
 | 想要 Let's Encrypt 自動續約、但不想自己管 certbot | **Caddy** | 把 `tls internal` 拿掉即自動 ACME |
 | 主機上**已經有 nginx** 在服務其他站台（共用 80/443） | **nginx** | 兩個 process 不能同時綁 443；在既有 nginx 加一個 server block 比搬遷全部站台簡單 |
 | 團隊維運慣例、監控、log 收集都圍繞 nginx | **nginx** | 少一種要學的東西 |
@@ -67,7 +67,8 @@
 
 ## 和 Caddy 版的差異（要自己補的）
 
-- **重啟期間的請求**：api 容器重建的那幾秒會回 502（目前的 Caddyfile 也一樣）。需要的話加
+- **重啟期間的請求**：Caddy 的 `lb_try_duration 30s` 會在 api 容器重建時暫留請求；nginx 範例沒有，
+  部署那幾秒會回 502。需要的話加
   `proxy_next_upstream error timeout` + 第二個 api replica。
 - **設定不跟 repo 一起部署**：改了 `docker/nginx/api.conf` 要到主機上手動複製 + reload；CD 不碰
   `/etc/nginx`（需要 sudo）。

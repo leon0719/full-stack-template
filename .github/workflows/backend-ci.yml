@@ -27,12 +27,15 @@ jobs:
       SECRET_KEY: ci-insecure-key
       DATABASE_URL: "sqlite://:memory:"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          # Same uv minor as backend/docker/Dockerfile's pinned uv image.
+          version: "0.13.x"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
+          prune-cache: true
 
       - name: Install dependencies
         run: uv sync --frozen
@@ -79,12 +82,15 @@ jobs:
       SECRET_KEY: ci-insecure-key
       DATABASE_URL: "postgresql://app:app@localhost:5432/app"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          # Same uv minor as backend/docker/Dockerfile's pinned uv image.
+          version: "0.13.x"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
+          prune-cache: true
 
       - name: Install dependencies
         run: uv sync --frozen
@@ -95,28 +101,50 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          # Same uv minor as backend/docker/Dockerfile's pinned uv image.
+          version: "0.13.x"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
+          prune-cache: true
 
       - name: Export locked requirements
         run: uv export --frozen --no-dev --no-emit-project --format requirements-txt -o requirements-audit.txt
 
       - name: pip-audit
-        run: uvx pip-audit --disable-pip -r requirements-audit.txt
+        run: uvx pip-audit==2.10.1 --disable-pip -r requirements-audit.txt
+
+  # 靜態分析找 OWASP 常見程式碼弱點(SQL/命令注入、硬編碼密碼、不安全反序列化等)。
+  # 只掃我們自己寫的 app 程式碼,不含 migrations/tests。
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.x"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+          prune-cache: true
+
+      # -ll = 只擋 medium 以上嚴重度,避免測試檔案裡的 assert(B101)洗版
+      # (ruff 對 tests/conftest 也是同樣忽略 S101,見 pyproject.toml)。
+      - name: bandit
+        run: uvx bandit==1.9.4 -r apps config -ll -x "*/migrations/*,*/tests.py,*/test_*.py,*/conftest.py"
 
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build prod image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./backend
           file: backend/docker/Dockerfile
@@ -127,7 +155,9 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
+        # Pinned by commit SHA, not tag: upstream has deleted/retagged release tags
+        # before (the old 0.28.0 pin now fails with "unable to find version").
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: app:ci
           format: table
@@ -166,7 +196,7 @@ jobs:
   nginx:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: nginx -t
         run: |
@@ -186,7 +216,7 @@ jobs:
   # 因為 workflow 有 paths filter，只改前端的 push 不會觸發後端部署（前端走 make deploy-frontend）。
   # 設定（Settings → Secrets and variables → Actions）與主機前置作業見 backend/docs/deployment.md「自動部署（CD）」。
   deploy:
-    needs: [quality, tests-postgres, audit, docker, nginx]
+    needs: [quality, tests-postgres, audit, sast, docker, nginx]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     # GitHub Environment：可加 required reviewers / 部署分支限制，secrets 也能只給這個 environment。
@@ -272,7 +302,7 @@ jobs:
   # 只在 main 分支失敗時通知 —— PR 的紅燈作者自己看得到,不需要吵整個 channel。
   notify:
     if: failure() && github.ref == 'refs/heads/main'
-    needs: [quality, tests-postgres, audit, docker, nginx, deploy]
+    needs: [quality, tests-postgres, audit, sast, docker, nginx, deploy]
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack

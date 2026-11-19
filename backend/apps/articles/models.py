@@ -1,10 +1,10 @@
 from django.conf import settings
 from django.db import models
 
-from apps.core.models import TimestampedModel
+from apps.core.models import SoftDeleteModel, TimestampedModel
 
 
-class Article(TimestampedModel):
+class Article(TimestampedModel, SoftDeleteModel):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         PUBLISHED = "published", "Published"
@@ -18,8 +18,9 @@ class Article(TimestampedModel):
     content = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
 
-    class Meta:
-        ordering = ["-created_at"]
+    class Meta(SoftDeleteModel.Meta):
+        # -id tiebreaker: page-number (OFFSET) pagination needs a unique order or rows repeat/skip across pages.
+        ordering = ["-created_at", "-id"]
         indexes = [
             # Serves "list my articles, newest first" — the default query path.
             models.Index(fields=["owner", "-created_at"]),
