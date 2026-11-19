@@ -18,7 +18,7 @@ def line_exchange(request, payload: LineExchangeRequest, response: HttpResponse)
     """Trade a one-time LINE-login exchange code for a session: the token goes into the HttpOnly auth
     cookie, never the body. Browser endpoint (CSRF-checked, before the code is consumed)."""
     require_csrf(request)
-    set_auth_cookie(response, AuthService.consume_line_exchange_code(payload.code))
+    set_auth_cookie(response, AuthService.consume_line_exchange_code(payload.code, request.session))
     return BaseResponse()
 
 

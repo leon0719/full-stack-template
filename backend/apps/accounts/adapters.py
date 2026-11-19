@@ -99,5 +99,5 @@ class LineAccountAdapter(DefaultAccountAdapter):
         user = cast(User, request.user)
         token = AuthService.issue_token(user)
         AuditLog.record(AuditLog.Action.LINE_LOGIN_SUCCESS, user=user)
-        code = AuthService.issue_line_exchange_code(token)
+        code = AuthService.issue_line_exchange_code(token, request.session)
         return f"{settings.FRONTEND_BASE_URL}/login/callback?code={code}"

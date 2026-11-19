@@ -41,7 +41,8 @@ Never run these yourself — stop and hand the exact command to the user
 - **Auth**: LINE Login only, no username/password. The backend uses django-allauth's LINE provider
   (`SOCIALACCOUNT_ONLY=True`) for the OAuth exchange; a custom adapter (`backend/apps/accounts/adapters.py`)
   turns the login into the existing opaque token, stores it behind a one-time exchange code
-  (60 s TTL), and redirects to the frontend `/login/callback?code=...`. The frontend
+  (60 s TTL, bound to the API-host session of the browser that finished the OAuth flow, so a code handed to
+  another browser is rejected — login CSRF), and redirects to the frontend `/login/callback?code=...`. The frontend
   `django-adapter.ts` `completeLineLogin(code)` calls `POST /auth/line/exchange` (with `X-CSRFToken` from
   `GET /auth/csrf`), which sets the token as an HttpOnly cookie (`__Host-auth` in prod, `auth` locally) —
   the browser never sees it — then `GET /auth/me`. Bearer is kept for tests and Swagger (a dev mints one in

@@ -1,5 +1,17 @@
 import pytest
+from django.contrib.sessions.backends.db import SessionStore
 from django.test import Client
+
+
+def _client_with_exchange_code(token, **kwargs):
+    """Client whose API-host session finished the LINE flow, i.e. holds the code (as the adapter does)."""
+    from apps.accounts.services import AuthService
+
+    c = Client(**kwargs)
+    session = c.session
+    code = AuthService.issue_line_exchange_code(token, session)
+    session.save()
+    return c, code
 
 
 @pytest.fixture(autouse=True)
@@ -140,8 +152,9 @@ def test_line_profile_str_and_getattr_fallback(user):
 def test_line_exchange_code_round_trips_to_the_token():
     from apps.accounts.services import AuthService
 
-    code = AuthService.issue_line_exchange_code("raw-token-abc")
-    assert AuthService.consume_line_exchange_code(code) == "raw-token-abc"
+    session = SessionStore()
+    code = AuthService.issue_line_exchange_code("raw-token-abc", session)
+    assert AuthService.consume_line_exchange_code(code, session) == "raw-token-abc"
 
 
 @pytest.mark.unit
@@ -150,10 +163,25 @@ def test_line_exchange_code_is_single_use():
 
     from apps.accounts.services import AuthService
 
-    code = AuthService.issue_line_exchange_code("raw-token-abc")
-    AuthService.consume_line_exchange_code(code)
+    session = SessionStore()
+    code = AuthService.issue_line_exchange_code("raw-token-abc", session)
+    AuthService.consume_line_exchange_code(code, session)
     with pytest.raises(HttpError):
-        AuthService.consume_line_exchange_code(code)
+        AuthService.consume_line_exchange_code(code, session)
+
+
+@pytest.mark.unit
+def test_line_exchange_code_rejected_from_another_session():
+    """Login-CSRF regression: an attacker's code must not be redeemable in the victim's browser."""
+    from ninja.errors import HttpError
+
+    from apps.accounts.services import AuthService
+
+    attacker_session, victim_session = SessionStore(), SessionStore()
+    code = AuthService.issue_line_exchange_code("attacker-token", attacker_session)
+
+    with pytest.raises(HttpError):
+        AuthService.consume_line_exchange_code(code, victim_session)
 
 
 @pytest.mark.unit
@@ -163,7 +191,7 @@ def test_line_exchange_code_unknown_code_rejected():
     from apps.accounts.services import AuthService
 
     with pytest.raises(HttpError):
-        AuthService.consume_line_exchange_code("never-issued")
+        AuthService.consume_line_exchange_code("never-issued", SessionStore())
 
 
 @pytest.mark.unit
@@ -244,12 +272,13 @@ def test_get_login_redirect_url_issues_token_and_exchange_code(user, rf, setting
     settings.FRONTEND_BASE_URL = "https://frontend.example.com"
     request = rf.get("/accounts/line/login/callback/")
     request.user = user
+    request.session = SessionStore()
 
     url = LineAccountAdapter().get_login_redirect_url(request)
 
     assert url.startswith("https://frontend.example.com/login/callback?code=")
     code = url.split("code=", 1)[1]
-    token = AuthService.consume_line_exchange_code(code)
+    token = AuthService.consume_line_exchange_code(code, request.session)
     assert token
 
 
@@ -260,9 +289,9 @@ def test_line_exchange_sets_cookie_no_token_in_body(user):
     from apps.accounts.services import AuthService
 
     token = AuthService.issue_token(user)
-    code = AuthService.issue_line_exchange_code(token)
+    c, code = _client_with_exchange_code(token)
 
-    resp = Client().post("/auth/line/exchange", data={"code": code}, content_type="application/json")
+    resp = c.post("/auth/line/exchange", data={"code": code}, content_type="application/json")
 
     assert resp.status_code == 200
     assert resp.json()["data"] is None
@@ -276,8 +305,7 @@ def test_line_exchange_sets_cookie_no_token_in_body(user):
 def test_line_exchange_requires_csrf(user):
     from apps.accounts.services import AuthService
 
-    code = AuthService.issue_line_exchange_code(AuthService.issue_token(user))
-    c = Client(enforce_csrf_checks=True)
+    c, code = _client_with_exchange_code(AuthService.issue_token(user), enforce_csrf_checks=True)
 
     resp = c.post("/auth/line/exchange", data={"code": code}, content_type="application/json")
     assert resp.status_code == 403
@@ -289,6 +317,17 @@ def test_line_exchange_requires_csrf(user):
         "/auth/line/exchange", data={"code": code}, content_type="application/json", headers={"X-CSRFToken": csrf}
     )
     assert resp.status_code == 200
+
+
+@pytest.mark.integration
+def test_line_exchange_rejects_code_from_another_browser(user):
+    from apps.accounts.services import AuthService
+
+    _, code = _client_with_exchange_code(AuthService.issue_token(user))  # attacker's browser
+
+    resp = Client().post("/auth/line/exchange", data={"code": code}, content_type="application/json")  # victim's
+
+    assert resp.status_code == 401
 
 
 @pytest.mark.integration
@@ -441,6 +480,7 @@ def test_line_login_success_is_audited(user, rf):
 
     request = rf.get("/accounts/line/login/callback/")
     request.user = user
+    request.session = SessionStore()
     LineAccountAdapter().get_login_redirect_url(request)
 
     entry = AuditLog.objects.get(action=AuditLog.Action.LINE_LOGIN_SUCCESS)
