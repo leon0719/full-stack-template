@@ -22,13 +22,13 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # vitest / steiger 等工具的 shebang 是 node,實際跑在 runner 的系統 Node 上;
       # 固定成跟 @types/node、本機 mise 相同的 major(jsdom 31 / steiger 0.10 需要較新的 Node)。
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
       - run: bun run lint:ci
       - run: bun run lint:fsd
