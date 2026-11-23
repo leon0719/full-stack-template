@@ -65,7 +65,7 @@ services:
 
   db:
     # Digest-pinned for reproducibility; dependabot (docker) bumps tag + digest.
-    image: postgres:18-alpine@sha256:1b1689b20d16a014a3d195653381cf2caa75a41a92d93b255a9d6ea29fd353aa
+    image: postgres:19-alpine@sha256:8b0ff4cdf221f0c53d7fcda681d3b461be725c492cd881c5ec9c0ad25023f188
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
