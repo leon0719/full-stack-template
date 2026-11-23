@@ -7,11 +7,27 @@ import { i18n } from "@/shared/i18n";
 // switch completes before any test renders.
 i18n.changeLanguage("zh-TW");
 
-// jsdom 沒有實作 <dialog> 的 modal API:補最小 polyfill(只切 open 屬性,不模擬 inert/焦點鎖定)。
-HTMLDialogElement.prototype.showModal ??= function showModal(this: HTMLDialogElement) {
-  this.setAttribute("open", "");
-};
-HTMLDialogElement.prototype.close ??= function close(this: HTMLDialogElement) {
-  this.removeAttribute("open");
-  this.dispatchEvent(new Event("close"));
-};
+// jsdom 缺的瀏覽器 API(Radix、cmdk、embla、react-resizable-panels、Sidebar 會用到):補到「能 render、不丟錯」為止,
+// 不模擬真實行為。要測尺寸 / 捲動相關邏輯請改用 Playwright。
+class NoopObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords() {
+    return [];
+  }
+}
+globalThis.ResizeObserver ??= NoopObserver as unknown as typeof ResizeObserver;
+globalThis.IntersectionObserver ??= NoopObserver as unknown as typeof IntersectionObserver;
+window.matchMedia ??= (query: string) =>
+  ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }) as MediaQueryList;
+Element.prototype.scrollIntoView ??= () => {};

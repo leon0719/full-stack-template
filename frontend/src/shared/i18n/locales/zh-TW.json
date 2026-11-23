@@ -17,12 +17,8 @@
       "title": "404 — 找不到頁面",
       "description": "您要找的頁面不存在，請確認網址是否正確。"
     },
-    "empty": {
-      "title": "目前沒有資料"
-    },
     "toast": {
-      "region": "通知",
-      "dismiss": "關閉通知"
+      "region": "通知"
     },
     "upload": {
       "prompt": "拖曳檔案到這裡，或點擊選擇檔案",
@@ -70,41 +66,23 @@
     "home": {
       "title": "React FSD Template",
       "subtitle": "Vite + React 19 + TanStack + Tailwind，採 FSD pages-first 架構。",
-      "toDemo": "前往 Demo 頁"
+      "toDemo": "瀏覽元件與範例"
     },
     "demo": {
-      "title": "Demo：TanStack Query",
+      "title": "元件展示",
+      "description": "shared/ui 的所有元件與狀態；頁面後段是串接 Query、表單、上傳與即時更新的整合範例。",
       "loading": "載入中…",
       "error": "載入失敗",
+      "integration": "整合範例",
+      "repoTitle": "TanStack Query",
       "form": {
-        "title": "Zustand · React Hook Form · Zod 示範",
+        "title": "Zustand、React Hook Form、Zod 示範",
         "nameLabel": "你的名字",
         "namePlaceholder": "輸入至少 2 個字",
         "nameMin": "至少 2 個字",
         "submit": "送出",
         "greeting": "Hello, {{name}}",
         "hint": "會顯示在下方的問候語中"
-      },
-      "kit": {
-        "title": "shared/ui 元件",
-        "badges": "Badge",
-        "openConfirm": "開啟確認框",
-        "openDanger": "刪除（危險動作）",
-        "confirmMessage": "確定要套用這個設定嗎？",
-        "dangerMessage": "確定要刪除這筆資料嗎？刪除後無法復原。",
-        "dangerLabel": "刪除",
-        "confirmed": "已確認",
-        "cancelled": "已取消",
-        "toastSuccess": "成功 Toast",
-        "toastError": "錯誤 Toast",
-        "toastInfo": "一般 Toast",
-        "saved": "已儲存",
-        "saveFailed": "儲存失敗，請稍後再試",
-        "info": "這是一則提示訊息",
-        "emptyDescription": "建立第一筆資料後會顯示在這裡。",
-        "create": "新增資料",
-        "errorDescription": "伺服器暫時沒有回應。",
-        "retried": "已重試 {{count}} 次"
       },
       "upload": {
         "title": "上傳與檔案",

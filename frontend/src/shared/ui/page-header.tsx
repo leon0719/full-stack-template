@@ -19,7 +19,7 @@ function BackLink({ to }: { to: string }) {
         e.preventDefault();
         router.history.back();
       }}
-      className="inline-flex size-9 items-center justify-center rounded-md hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2"
+      className="inline-flex size-9 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2"
     >
       <ChevronLeft aria-hidden className="size-5" />
     </Link>
@@ -52,8 +52,10 @@ export function PageHeader({
     <header className="flex flex-wrap items-start gap-2 pb-6">
       {backTo && <BackLink to={backTo} />}
       <div className="min-w-0 flex-1">
-        <h1 className="truncate text-2xl font-bold">{title}</h1>
-        {description && <p className="mt-1 text-sm text-foreground/60">{description}</p>}
+        <h1 className="truncate text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+        {description && (
+          <p className="mt-2 max-w-prose text-sm text-muted-foreground">{description}</p>
+        )}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>

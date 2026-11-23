@@ -5,14 +5,16 @@ import { Button } from "@/shared/ui";
 export function HomePage() {
   const { t } = useTranslation();
   return (
-    <main className="mx-auto max-w-2xl p-8">
-      <h1 className="text-2xl font-bold">{t("pages.home.title")}</h1>
-      <p className="mt-2 text-foreground/70">{t("pages.home.subtitle")}</p>
-      <div className="mt-6 flex gap-3">
-        <Link to="/demo">
-          <Button>{t("pages.home.toDemo")}</Button>
-        </Link>
+    <div className="mx-auto max-w-2xl px-6 py-16">
+      <h1 className="text-3xl font-semibold tracking-tight text-balance">
+        {t("pages.home.title")}
+      </h1>
+      <p className="mt-3 max-w-prose text-muted-foreground">{t("pages.home.subtitle")}</p>
+      <div className="mt-8 flex gap-3">
+        <Button asChild size="lg">
+          <Link to="/demo">{t("pages.home.toDemo")}</Link>
+        </Button>
       </div>
-    </main>
+    </div>
   );
 }

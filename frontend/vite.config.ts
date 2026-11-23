@@ -19,7 +19,8 @@ function cspMeta(env: Record<string, string>): Plugin {
   const policy = [
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self'",
+    // Radix(捲動鎖定)、sonner、shadcn Chart 會在執行期插入 <style>;只開 style,script 仍嚴格
+    "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
     // api.github.com 只給 /demo 頁用,刪 demo 時一併拿掉
@@ -74,7 +75,9 @@ export default defineConfig(({ mode }) => ({
     // 它必然超標(React + Router + Query + i18n + Sentry),每次 build 都跳警告
     // 只會讓人學會忽略 build 輸出。門檻提高到 vendor 現況之上,真正的異常成長
     // (例如誤把大型套件加進來)仍然會被擋下來。
-    chunkSizeWarningLimit: 700,
+    // /demo 的元件型錄把全部 shadcn 元件與其依賴載進來,lazy chunk 約 940KB(只在進 /demo 時下載)。
+    // 刪掉 demo 頁之後可以調回 700。
+    chunkSizeWarningLimit: 1000,
     rolldownOptions: {
       output: {
         // 把第三方套件從應用程式碼拆開。動機是 Sentry SDK 進 bundle 後主 chunk
@@ -91,7 +94,18 @@ export default defineConfig(({ mode }) => ({
               test: /[\\/]node_modules[\\/](read-excel-file|fflate|saxen|unzipper-esm|worker-f)[\\/]/,
               priority: 10,
             },
-            { name: "vendor", test: /[\\/]node_modules[\\/]/ },
+            // shadcn Chart 的 recharts(含 d3 / redux 依賴)自成一組,只有用到圖表的頁面才載入
+            {
+              name: "charts",
+              test: /[\\/]node_modules[\\/](recharts|d3-[a-z-]+|victory-vendor|internmap|@reduxjs|redux|react-redux|reselect|immer|es-toolkit|decimal\.js-light|eventemitter3|use-sync-external-store|tiny-invariant)[\\/]/,
+              priority: 10,
+            },
+            // vendor 只收每頁都會用到的核心套件。shadcn 元件的重型依賴(recharts、shiki、react-day-picker、
+            // embla、cmdk…)不列進來,交給預設切分跟著用到它們的頁面 lazy 載入;列進來就會變成首頁必載。
+            {
+              name: "vendor",
+              test: /[\\/]node_modules[\\/](react|react-dom|scheduler|@tanstack[\\/]react-(router|query|store)|@tanstack[\\/](router-core|query-core|history|store)|i18next|react-i18next|i18next-browser-languagedetector|@sentry|zustand|class-variance-authority|clsx|tailwind-merge|sonner)[\\/]/,
+            },
           ],
         },
       },

@@ -1,8 +1,18 @@
 import { CircleHelp, TriangleAlert } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/shared/lib";
-import { Button } from "./button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "./alert-dialog";
 
 export interface ConfirmOptions {
   title?: string;
@@ -24,6 +34,7 @@ let show: ((request: Request) => void) | null = null;
  * 可 await 的確認框,取代 window.confirm:
  * `if (!(await confirmDialog({ message: t("x.confirmDelete"), danger: true }))) return;`
  * 不是 hook,mutation callback、事件處理器裡都能直接呼叫。
+ * 需要自訂內容(表單、清單)時直接用 <AlertDialog> 元件組。
  */
 export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
   // 沒有掛 host(例如單獨 render 某個頁面的測試)時退回瀏覽器原生確認框,流程不會卡住
@@ -33,110 +44,94 @@ export function confirmDialog(options: ConfirmOptions): Promise<boolean> {
 }
 
 /**
- * 用原生 `<dialog>` + showModal():瀏覽器負責 focus trap(頁面其他部分變 inert)、
- * Esc 關閉(cancel 事件)與 top layer;關閉後焦點回到開啟前的元素。
+ * 以 shadcn AlertDialog(Radix)實作:focus trap、Esc 取消、關閉後焦點回到開啟前的元素。
+ * AlertDialog 依規範點背景不會關閉,一定要按按鈕或 Esc。
  */
 export function ConfirmDialogHost() {
   const { t } = useTranslation();
+  // request 在關閉後保留,讓關閉動畫期間內容不會先消失;open 才是開關
   const [request, setRequest] = useState<Request | null>(null);
-  const ref = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  const messageId = useId();
+  const [open, setOpen] = useState(false);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    // 前一個還開著又來一個:先把前一個當作取消,不然它的 Promise 永遠不會結束
-    show = (next) =>
+    show = (next) => {
+      // 已經開著時焦點在對話框裡,不覆寫:關閉後要回到最初開啟它的元素
+      openerRef.current ??= document.activeElement as HTMLElement | null;
+      // 前一個還開著又來一個:先把前一個當作取消,不然它的 Promise 永遠不會結束
       setRequest((current) => {
         current?.resolve(false);
         return next;
       });
+      setOpen(true);
+    };
     return () => {
       show = null;
     };
   }, []);
 
-  useEffect(() => {
-    if (!request) return;
-    const opener = document.activeElement as HTMLElement | null;
-    const dialog = ref.current;
-    if (dialog && !dialog.open) dialog.showModal();
-    // 明確指定初始焦點(各瀏覽器對 dialog 內 autofocus 的行為不一致)
-    dialog?.querySelector<HTMLButtonElement>("[data-initial-focus]")?.focus();
-    return () => {
-      if (dialog?.open) dialog.close();
-      opener?.focus();
-    };
-  }, [request]);
-
-  if (!request) return null;
-  const { title, message, confirmLabel, cancelLabel, danger, resolve } = request;
   const finish = (ok: boolean) => {
-    resolve(ok);
-    setRequest(null);
+    request?.resolve(ok);
+    setOpen(false);
   };
+
+  const danger = request?.danger ?? false;
   const Icon = danger ? TriangleAlert : CircleHelp;
 
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: 鍵盤的 Esc 由 dialog 的 cancel 事件處理,這裡只處理點背景
-    <dialog
-      ref={ref}
-      // closedby="any":原生點背景關閉(Chrome/Firefox);Safari 尚不支援,下面 onClick 保留當 fallback。
-      // React 型別還沒有這個屬性,用 spread 傳入
-      {...({ closedby: "any" } as object)}
-      aria-labelledby={title ? titleId : messageId}
-      aria-describedby={title ? messageId : undefined}
-      onCancel={(e) => {
-        e.preventDefault();
-        finish(false);
-      }}
-      onClick={(e) => {
-        // 點到 dialog 本身(::backdrop 區域)才算點背景
-        if (e.target === e.currentTarget) finish(false);
-      }}
-      className="m-auto w-[min(calc(100vw-2rem),28rem)] rounded-lg bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50"
-    >
-      <div className="flex flex-col gap-5 p-5">
-        <div className="flex items-start gap-3">
-          <span
-            aria-hidden
-            className={cn(
-              "flex size-10 shrink-0 items-center justify-center rounded-full",
-              danger ? "bg-destructive/10 text-destructive" : "bg-foreground/5 text-foreground/70",
-            )}
-          >
-            <Icon className="size-5" />
-          </span>
-          <div className="min-w-0 flex-1 pt-1">
-            {title && (
-              <h2 id={titleId} className="mb-1 font-semibold">
-                {title}
-              </h2>
-            )}
-            <p
-              id={messageId}
-              className="max-h-[50vh] overflow-y-auto text-sm leading-relaxed whitespace-pre-line"
+    <AlertDialog open={open} onOpenChange={(next) => !next && finish(false)}>
+      {request && (
+        <AlertDialogContent
+          onCloseAutoFocus={(e) => {
+            // Radix 預設把焦點還給 Trigger;這裡沒有 Trigger,改還給開啟前的元素
+            e.preventDefault();
+            openerRef.current?.focus();
+            openerRef.current = null;
+          }}
+          onOpenAutoFocus={(e) => {
+            // Radix 預設聚焦「取消」;一般確認改聚焦確認鈕,危險動作維持在取消
+            if (danger) return;
+            e.preventDefault();
+            confirmRef.current?.focus();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogMedia
+              className={cn(danger && "bg-destructive/10 text-destructive dark:bg-destructive/20")}
             >
-              {message}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button
-            variant="outline"
-            data-initial-focus={danger ? "" : undefined}
-            onClick={() => finish(false)}
-          >
-            {cancelLabel ?? t("common.cancel")}
-          </Button>
-          <Button
-            variant={danger ? "destructive" : "default"}
-            data-initial-focus={danger ? undefined : ""}
-            onClick={() => finish(true)}
-          >
-            {confirmLabel ?? t("common.confirm")}
-          </Button>
-        </div>
-      </div>
-    </dialog>
+              <Icon />
+            </AlertDialogMedia>
+            {request.title ? (
+              <>
+                <AlertDialogTitle>{request.title}</AlertDialogTitle>
+                <AlertDialogDescription className="max-h-[50vh] overflow-y-auto whitespace-pre-line">
+                  {request.message}
+                </AlertDialogDescription>
+              </>
+            ) : (
+              // 沒有標題時訊息本身就是對話框的名稱
+              <AlertDialogTitle className="max-h-[50vh] overflow-y-auto text-sm font-normal whitespace-pre-line">
+                {request.message}
+              </AlertDialogTitle>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{request.cancelLabel ?? t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              ref={confirmRef}
+              variant={danger ? "destructive" : "default"}
+              onClick={(e) => {
+                // 自己關:不讓 Radix 再觸發 onOpenChange(false) 被當成取消
+                e.preventDefault();
+                finish(true);
+              }}
+            >
+              {request.confirmLabel ?? t("common.confirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      )}
+    </AlertDialog>
   );
 }

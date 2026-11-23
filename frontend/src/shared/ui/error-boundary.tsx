@@ -34,11 +34,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         this.props.fallback ?? (
           <div className="p-8 text-center">
             <h1 className="text-lg font-medium">{i18n.t("common.error.title")}</h1>
-            <p className="text-foreground/60">{i18n.t("common.error.description")}</p>
+            <p className="text-muted-foreground">{i18n.t("common.error.description")}</p>
             <button
               type="button"
               onClick={this.handleRetry}
-              className="mt-4 h-9 rounded-md border border-foreground/20 px-4 text-sm"
+              className="mt-4 h-9 rounded-md border border-input px-4 text-sm"
             >
               {i18n.t("common.error.retry")}
             </button>

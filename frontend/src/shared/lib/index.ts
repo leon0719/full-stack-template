@@ -28,3 +28,4 @@ export {
   reportError,
   setErrorReporter,
 } from "./report-error";
+export { useHighlightedCode } from "./use-highlighted-code";

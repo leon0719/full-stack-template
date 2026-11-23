@@ -17,12 +17,8 @@
       "title": "404 — Page not found",
       "description": "The page you are looking for does not exist. Please check the URL."
     },
-    "empty": {
-      "title": "Nothing here yet"
-    },
     "toast": {
-      "region": "Notifications",
-      "dismiss": "Dismiss notification"
+      "region": "Notifications"
     },
     "upload": {
       "prompt": "Drag files here, or click to choose",
@@ -70,12 +66,15 @@
     "home": {
       "title": "React FSD Template",
       "subtitle": "Vite + React 19 + TanStack + Tailwind, FSD pages-first architecture.",
-      "toDemo": "Go to Demo"
+      "toDemo": "Browse components and demos"
     },
     "demo": {
-      "title": "Demo: TanStack Query",
+      "title": "Components",
+      "description": "Every shared/ui component and its states; the integration demos (Query, forms, uploads, realtime) follow below.",
       "loading": "Loading…",
       "error": "Failed to load",
+      "integration": "Integration demos",
+      "repoTitle": "TanStack Query",
       "form": {
         "title": "Zustand · React Hook Form · Zod demo",
         "nameLabel": "Your name",
@@ -84,27 +83,6 @@
         "submit": "Submit",
         "greeting": "Hello, {{name}}",
         "hint": "Shown in the greeting below"
-      },
-      "kit": {
-        "title": "shared/ui components",
-        "badges": "Badge",
-        "openConfirm": "Open confirm",
-        "openDanger": "Delete (dangerous)",
-        "confirmMessage": "Apply this setting?",
-        "dangerMessage": "Delete this item? This cannot be undone.",
-        "dangerLabel": "Delete",
-        "confirmed": "Confirmed",
-        "cancelled": "Cancelled",
-        "toastSuccess": "Success toast",
-        "toastError": "Error toast",
-        "toastInfo": "Info toast",
-        "saved": "Saved",
-        "saveFailed": "Save failed, please try again later",
-        "info": "This is an info message",
-        "emptyDescription": "Items you create will show up here.",
-        "create": "Create item",
-        "errorDescription": "The server is not responding right now.",
-        "retried": "Retried {{count}} times"
       },
       "upload": {
         "title": "Uploads & files",

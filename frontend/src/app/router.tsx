@@ -15,7 +15,7 @@ function NotFoundPage() {
   return (
     <div className="p-8 text-center">
       <h1 className="text-lg font-medium">{t("common.notFound.title")}</h1>
-      <p className="text-foreground/60">{t("common.notFound.description")}</p>
+      <p className="text-muted-foreground">{t("common.notFound.description")}</p>
     </div>
   );
 }

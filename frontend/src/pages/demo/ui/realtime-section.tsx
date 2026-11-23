@@ -2,16 +2,17 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type JobStatus, useEventStream, useJobPolling } from "@/shared/api";
 import { formatDateTime, formatRelativeTime } from "@/shared/lib";
-import { Badge, type BadgeProps, Button, toast } from "@/shared/ui";
+import { Badge, Button, toast } from "@/shared/ui";
 import { cancelFakeJob, fetchFakeJob, startFakeJob } from "../api/fake-job";
 
-const STATUS_TONE: Record<JobStatus, BadgeProps["tone"]> = {
-  pending: "neutral",
-  running: "info",
-  succeeded: "success",
-  failed: "danger",
-  cancelled: "warning",
-};
+const STATUS_TONE: Record<JobStatus, "secondary" | "info" | "success" | "destructive" | "warning"> =
+  {
+    pending: "secondary",
+    running: "info",
+    succeeded: "success",
+    failed: "destructive",
+    cancelled: "warning",
+  };
 
 // 本 repo 的後端沒有 SSE 端點(上游模板的 apps/realtime 與 POST /auth/stream-token 都沒同步過來)。
 // 預設不連線;按下「連線 SSE」只會看到斷線後的退避重連。要真的用:後端補 SSE + stream token 端點,
@@ -41,7 +42,7 @@ function JobDemo() {
           </Button>
         )}
         {job && (
-          <Badge tone={STATUS_TONE[job.status]}>{t(`common.job.status.${job.status}`)}</Badge>
+          <Badge variant={STATUS_TONE[job.status]}>{t(`common.job.status.${job.status}`)}</Badge>
         )}
       </div>
       {job && (
@@ -52,7 +53,7 @@ function JobDemo() {
             value={job.progress ?? undefined}
             aria-label={t("pages.demo.realtime.progress", { percent: job.progress ?? 0 })}
           />
-          <span className="text-sm tabular-nums text-foreground/70">
+          <span className="text-sm tabular-nums text-muted-foreground">
             {t("pages.demo.realtime.progress", { percent: job.progress ?? 0 })}
           </span>
         </div>
@@ -83,16 +84,18 @@ function StreamDemo() {
             : t("pages.demo.realtime.streamToggleOn")}
         </Button>
         <Badge
-          tone={status === "open" ? "success" : status === "reconnecting" ? "warning" : "neutral"}
+          variant={
+            status === "open" ? "success" : status === "reconnecting" ? "warning" : "secondary"
+          }
         >
           {t(`pages.demo.realtime.streamStatus.${status}`)}
         </Badge>
       </div>
-      <p className="text-xs text-foreground/60">
+      <p className="text-xs text-muted-foreground">
         {t("pages.demo.realtime.streamHint", { path: STREAM_PATH })}
       </p>
       {lastEventAt && (
-        <p className="text-sm text-foreground/70">
+        <p className="text-sm text-muted-foreground">
           {t("pages.demo.realtime.updatedAt", {
             time: formatDateTime(lastEventAt, { withSeconds: true }),
             relative: formatRelativeTime(lastEventAt),
@@ -106,8 +109,8 @@ function StreamDemo() {
 export function RealtimeSection() {
   const { t } = useTranslation();
   return (
-    <section className="mt-10 flex flex-col gap-6">
-      <h2 className="text-xl font-bold">{t("pages.demo.realtime.title")}</h2>
+    <section className="flex flex-col gap-6">
+      <h3 className="text-lg font-semibold">{t("pages.demo.realtime.title")}</h3>
       <JobDemo />
       <StreamDemo />
     </section>

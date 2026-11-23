@@ -1,81 +1,232 @@
-import { cloneElement, isValidElement, type ReactNode } from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/shared/lib";
 
-/** react-hook-form 的 FieldError 形狀(只用到 message) */
-interface FieldErrorLike {
-  message?: string;
+import { Label } from "@/shared/ui/label";
+import { Separator } from "@/shared/ui/separator";
+
+function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
+  return (
+    <fieldset
+      data-slot="field-set"
+      className={cn(
+        "flex flex-col gap-4 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
-/**
- * 表單欄位外框:label + 控制項 + 提示 / 錯誤,並自動把 `aria-invalid`、`aria-describedby`
- * 接到唯一的子元素上(子元素自己給的同名 props 優先)。
- *
- * 搭配 useZodForm:直接傳 `errors.name`。zod message 是 i18n key,這裡會幫你 t();
- * 傳字串則視為已翻譯好的文字原樣顯示。
- * ```tsx
- * <Field label={t("x.name")} htmlFor="name" error={errors.name} hint={t("x.nameHint")} required>
- *   <Input id="name" {...register("name")} />
- * </Field>
- * ```
- */
-export function Field({
-  label,
-  htmlFor,
-  error,
-  hint,
-  required,
-  children,
-}: {
-  label: ReactNode;
-  /** 必須等於子元素的 id */
-  htmlFor: string;
-  error?: string | FieldErrorLike | null;
-  hint?: ReactNode;
-  /** 只負責顯示必填標記;驗證仍由 schema 決定 */
-  required?: boolean;
-  children: ReactNode;
-}) {
-  const { t } = useTranslation();
-  const message =
-    typeof error === "string"
-      ? error
-      : error?.message
-        ? // zod message 是 i18n key;型別上無法證明,執行期找不到 key 時 i18next 會原樣回傳
-          t(error.message as never)
-        : null;
-  const hintId = `${htmlFor}-hint`;
-  const errorId = `${htmlFor}-error`;
-  const describedBy = [hint ? hintId : null, message ? errorId : null].filter(Boolean).join(" ");
-
-  const control = isValidElement<Record<string, unknown>>(children)
-    ? cloneElement(children, {
-        "aria-invalid": message ? true : undefined,
-        "aria-describedby": describedBy || undefined,
-        ...children.props,
-      })
-    : children;
-
+function FieldLegend({
+  className,
+  variant = "legend",
+  ...props
+}: React.ComponentProps<"legend"> & { variant?: "legend" | "label" }) {
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={htmlFor} className="text-sm font-medium">
-        {label}
-        {required && (
-          <span aria-hidden className="ml-0.5 text-destructive">
-            *
-          </span>
-        )}
-      </label>
-      {control}
-      {hint && (
-        <p id={hintId} className="text-xs text-foreground/60">
-          {hint}
-        </p>
+    <legend
+      data-slot="field-legend"
+      data-variant={variant}
+      className={cn(
+        "mb-1.5 font-medium data-[variant=label]:text-sm data-[variant=legend]:text-base",
+        className,
       )}
-      {message && (
-        <p id={errorId} role="alert" className="text-sm text-destructive">
-          {message}
-        </p>
+      {...props}
+    />
+  );
+}
+
+function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="field-group"
+      className={cn(
+        "group/field-group @container/field-group flex w-full flex-col gap-5 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+const fieldVariants = cva("group/field flex w-full gap-2 data-[invalid=true]:text-destructive", {
+  variants: {
+    orientation: {
+      vertical: "flex-col *:w-full [&>.sr-only]:w-auto",
+      horizontal:
+        "flex-row items-center has-[>[data-slot=field-content]]:items-start *:data-[slot=field-label]:flex-auto has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+      responsive:
+        "flex-col *:w-full @md/field-group:flex-row @md/field-group:items-center @md/field-group:*:w-auto @md/field-group:has-[>[data-slot=field-content]]:items-start @md/field-group:*:data-[slot=field-label]:flex-auto [&>.sr-only]:w-auto @md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+    },
+  },
+  defaultVariants: {
+    orientation: "vertical",
+  },
+});
+
+function Field({
+  className,
+  orientation = "vertical",
+  ...props
+}: React.ComponentProps<"div"> & VariantProps<typeof fieldVariants>) {
+  return (
+    <div
+      role="group"
+      data-slot="field"
+      data-orientation={orientation}
+      className={cn(fieldVariants({ orientation }), className)}
+      {...props}
+    />
+  );
+}
+
+function FieldContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="field-content"
+      className={cn("group/field-content flex flex-1 flex-col gap-0.5 leading-snug", className)}
+      {...props}
+    />
+  );
+}
+
+function FieldLabel({ className, ...props }: React.ComponentProps<typeof Label>) {
+  return (
+    <Label
+      data-slot="field-label"
+      className={cn(
+        "group/field-label peer/field-label flex w-fit gap-2 leading-snug group-data-[disabled=true]/field:opacity-50 has-data-checked:border-primary/30 has-data-checked:bg-primary/5 has-[>[data-slot=field]]:rounded-lg has-[>[data-slot=field]]:border has-[>[data-slot=field]]:not-has-[:disabled,[data-disabled]]:hover:bg-muted/50 has-[>[data-slot=field]]:has-[:focus-visible]:border-ring has-[>[data-slot=field]]:has-[:focus-visible]:ring-3 has-[>[data-slot=field]]:has-[:focus-visible]:ring-ring/50 *:data-[slot=field]:p-2.5 dark:has-data-checked:border-primary/20 dark:has-data-checked:bg-primary/10",
+        "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="field-label"
+      className={cn(
+        "flex w-fit items-center gap-2 text-sm font-medium group-data-[disabled=true]/field:opacity-50",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
+  return (
+    <p
+      data-slot="field-description"
+      className={cn(
+        "text-left text-sm leading-normal font-normal text-muted-foreground group-has-data-horizontal/field:text-balance [[data-variant=legend]+&]:-mt-1.5",
+        "last:mt-0 nth-last-2:-mt-1",
+        "[&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function FieldSeparator({
+  children,
+  className,
+  ...props
+}: React.ComponentProps<"div"> & {
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      data-slot="field-separator"
+      data-content={!!children}
+      className={cn(
+        "relative -my-2 h-5 text-sm group-data-[variant=outline]/field-group:-mb-2",
+        className,
+      )}
+      {...props}
+    >
+      <Separator className="absolute inset-0 top-1/2" />
+      {children && (
+        <span
+          className="relative mx-auto block w-fit bg-background px-2 text-muted-foreground"
+          data-slot="field-separator-content"
+        >
+          {children}
+        </span>
       )}
     </div>
   );
 }
+
+function FieldError({
+  className,
+  children,
+  errors,
+  ...props
+}: React.ComponentProps<"div"> & {
+  errors?: Array<{ message?: string } | undefined>;
+}) {
+  const { t } = useTranslation();
+  const content = useMemo(() => {
+    if (children) {
+      return children;
+    }
+
+    if (!errors?.length) {
+      return null;
+    }
+
+    // zod message 是 i18n key(本模板慣例);找不到 key 時 i18next 原樣回傳,所以一般字串也能直接傳
+    const uniqueErrors = [
+      ...new Map(
+        errors.map((error) => [
+          error?.message,
+          error?.message ? { message: t(error.message as never) as string } : error,
+        ]),
+      ).values(),
+    ];
+
+    if (uniqueErrors?.length == 1) {
+      return uniqueErrors[0]?.message;
+    }
+
+    return (
+      <ul className="ml-4 flex list-disc flex-col gap-1">
+        {uniqueErrors.map((error, index) => error?.message && <li key={index}>{error.message}</li>)}
+      </ul>
+    );
+  }, [children, errors, t]);
+
+  if (!content) {
+    return null;
+  }
+
+  return (
+    <div
+      role="alert"
+      data-slot="field-error"
+      className={cn("text-sm font-normal text-destructive", className)}
+      {...props}
+    >
+      {content}
+    </div>
+  );
+}
+
+export {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSeparator,
+  FieldSet,
+  FieldTitle,
+};

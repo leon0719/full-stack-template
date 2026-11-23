@@ -124,27 +124,47 @@ Everyday usage rules are in `CLAUDE.md`; this file covers the internals and the 
 
 ## UI 元件（`shared/ui`）
 
-- **`confirmDialog(options) → Promise<boolean>`**：取代 `window.confirm`，可在事件處理器 / mutation callback 直接
-  `await`。原生 `<dialog>` + `showModal()`：focus trap（頁面其他部分 inert）、Esc（cancel 事件）、點背景都算取消；
-  `danger: true` 時確認鈕為警示色、初始焦點在「取消」；關閉後焦點回到開啟前的元素。同時只會有一個，新的請求會把舊的當取消。
-  掛載點 `<ConfirmDialogHost />` 在 `app/entrypoint.tsx`；沒掛時退回 `window.confirm`（單獨 render 頁面的測試不會卡住）。
-- **`toast(message, { tone, duration })` / `toast.success|error|info`**：自製而非 sonner——需求只有文字 + 自動消失 +
-  關閉鈕，自己寫約 120 行、零依賴、樣式直接用 theme token、文案走 i18n；需要 promise toast、滑動關閉等再換 sonner。
-  不是 hook，React 外也能呼叫。預設 4 秒、錯誤 6 秒、`duration: 0` 常駐，最多同時 3 則（丟最舊）。
-  live region（`role="status"`, polite）先存在於 DOM 才放入文字，螢幕閱讀器才會念。掛載點 `<Toaster />` 在
-  `app/entrypoint.tsx`；沒掛時為 no-op。需要使用者決定的事用 `confirmDialog`，不要用 toast。
-- **`<Field label htmlFor error hint required>`**：label + 控制項 + 提示 / 錯誤，自動把 `aria-invalid`、
-  `aria-describedby` 接到唯一的子元素（子元素自己給的優先）。`error` 直接傳 RHF 的 `errors.x`：其 message 視為 i18n key
-  並 `t()`；傳字串則原樣顯示。
+**shadcn/ui**（style `radix-nova`、底層 Radix、圖示 lucide）。原始碼在 `src/shared/ui/`，是我們自己的程式碼，可以直接改。
+全部元件與狀態的展示在 `/demo`（`pages/demo/ui/gallery/`，依分類一檔），新增元件時一併補上範例。
+
+- **新增 / 更新元件**：`bunx --bun shadcn@latest add <name>`（`components.json` 的 aliases 已指向 `@/shared/ui`、`@/shared/lib`）。
+  更新已改過的元件先 `add <name> --dry-run` / `--diff <file>` 看差異再合併，不要直接 `--overwrite`。
+  CLI 偶爾會把 `cn` 的 import 寫成 `from "cn"` 並把 npm 的 `cn` 套件加進 package.json：改成 `from "@/shared/lib"` 並 `bun remove cn`。
+  新檔要加進 `src/shared/ui/index.ts`（`export * from "./<name>"`），頁面一律從 `@/shared/ui` import。
+- **Biome 例外**：`biome.json` 的 overrides 對 `src/shared/ui/**` 關掉幾條 shadcn 原始碼會觸發的規則（`useSemanticElements`、
+  `noArrayIndexKey`、`noDangerouslySetInnerHtml`（Chart 的 `<style>`）等），好讓元件維持和上游一致、方便 `--diff`。
+- **主題（藍染）**：`src/index.css` 的 `:root` / `.dark`。靛藍 `--primary` 是主色，薑黃 `--ring` 用在 focus 外框、文字選取與
+  圖表第二色，其餘是由這兩色推出的中性色；品牌化時先改 `--primary`、`--ring`、`--chart-*`。`--ring` 刻意加深到與白底、
+  紙白底、靛藍都 ≥ 3:1（WCAG 非文字對比），換色時也要維持。本模板另加 `--success` / `--warning` / `--info`
+  給 `<Badge variant="success|warning|info">` 用。深色模式在 `<html>` 加 `.dark`（`/demo` 有預覽按鈕，目前沒有全站切換 UI）。
+  字型：英數 IBM Plex Sans / Plex Mono（`@fontsource`，自帶檔案、不連外），中文用系統字型（蘋方、Noto Sans TC、微軟正黑體）。
+  頂部導覽列是全站唯一大面積用主色的地方，其他畫面維持中性。
+- **CSP**：Radix 的捲動鎖定、sonner、Chart 會在執行期插入 `<style>`，所以 `vite.config.ts` 的 `style-src` 含 `'unsafe-inline'`（script 仍嚴格）。
+- **Provider**：`<TooltipProvider>` 包在 `RouterProvider` 外、`<Toaster />`（sonner）與 `<ConfirmDialogHost />` 也掛在
+  `app/entrypoint.tsx`。單獨 render 頁面的測試沒有這些 Provider：用到 Tooltip 的元件要自己包 `<TooltipProvider>`。
+
+本模板對 shadcn 元件的客製與自製元件：
+
+- **表單**：shadcn `Field` 系列（`FieldGroup` / `Field data-invalid` / `FieldLabel` / `FieldDescription` / `FieldError`），
+  控制項自己帶 `aria-invalid`。**`FieldError errors={[errors.x]}` 會把 message 當 i18n key 做 `t()`**（zod schema 的
+  message 是 i18n key），找不到 key 時原樣顯示。配 `register()` 的下拉選單優先用 `NativeSelect`；`Select` / `Combobox`
+  是受控元件，要用 RHF 的 `Controller`。
+- **`toast`**：直接用 sonner（`toast()` / `toast.success|error|info|promise`），從 `@/shared/ui` import。不是 hook，React 外也能呼叫。
+  需要使用者決定的事用 `confirmDialog`，不要用 toast。
+- **`confirmDialog(options) → Promise<boolean>`**：取代 `window.confirm`，以 `AlertDialog` 實作的可 `await` 版本。
+  Esc / 取消鈕都算取消，點背景不會關（AlertDialog 規範）；`danger: true` 時確認鈕為 destructive、初始焦點在「取消」，
+  否則在確認鈕；關閉後焦點回到開啟前的元素。同時只會有一個，新的請求會把舊的當取消。掛載點 `<ConfirmDialogHost />`；
+  沒掛時退回 `window.confirm`。需要自訂內容就直接用 `AlertDialog` 元件組。
+- **`<ErrorState onRetry>`**：以 `Empty` 組成的載入失敗版面（`role="alert"`），標題 / 說明預設用通用文案。
+  description 不要直接放 `ApiError.message`，用 `reason` 對 i18n key。沒資料時用 shadcn `Empty`。
+- **`<Spinner label?>`**：預設念出「載入中…」（i18n），`label=""` 為純裝飾；按鈕 loading 寫法是
+  `<Button disabled><Spinner label="" data-icon="inline-start" />儲存中</Button>`。
 - **`<FileDropzone onFiles accept maxSize multiple maxFiles>`**：拖放 + 點選。整塊是 `<button>`（Tab / Enter / Space），
   `accept` 寫法同 `<input accept>`（拖放不受 accept 限制，所以會再用 `matchesAccept` 檢查一次）；格式、大小、數量錯誤
-  以 `role="alert"` 列出，合格的檔案照樣送出。可放進 `<Field htmlFor={id}>`。只負責選檔，上傳用 `apiPost` / `apiUpload`。
-- **`<EmptyState>` / `<ErrorState onRetry>`**：無資料 / 載入失敗版面，標題預設用通用文案；`ErrorState` 是 `role="alert"`。
-  description 不要直接放 `ApiError.message`，用 `reason` 對 i18n key。
+  以 `role="alert"` 列出，合格的檔案照樣送出。放在 `Field` 裡時自己傳 `id` / `aria-invalid` / `aria-describedby`。
+  只負責選檔，上傳用 `apiPost` / `apiUpload`。
 - **`<PageHeader title description actions backTo>`**：h1 + 動作列，並設定分頁標題 `標題 · App`（離開時還原）。
   `backTo` 有上一頁時走 `history.back()`（保留列表篩選與捲動），直接進來時才走連結。
-- **`<Badge tone>`**（neutral / info / success / warning / danger）、**`<Spinner label?>`**（`label=""` 為純裝飾）。
-  狀態色 token（`--color-success|warning|info`）在 `src/index.css`。
 
 ## 檔案與時間工具（`shared/lib`）
 

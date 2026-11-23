@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { Field } from "./field";
+import { Field, FieldError, FieldLabel } from "./field";
 import { FileDropzone } from "./file-dropzone";
 
 const csv = (name = "a.csv", size = 10) =>
@@ -68,8 +68,10 @@ describe("FileDropzone", () => {
 
   it("works inside Field: label names the zone and the field error describes it", () => {
     render(
-      <Field label="匯入檔案" htmlFor="import" error="請選擇檔案">
-        <FileDropzone id="import" onFiles={vi.fn()} />
+      <Field data-invalid>
+        <FieldLabel htmlFor="import">匯入檔案</FieldLabel>
+        <FileDropzone id="import" onFiles={vi.fn()} aria-invalid aria-describedby="import-error" />
+        <FieldError id="import-error">請選擇檔案</FieldError>
       </Field>,
     );
     const zone = screen.getByRole("button", { name: /匯入檔案/ });

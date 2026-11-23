@@ -7,7 +7,7 @@ import {
   SpreadsheetError,
   validateColumns,
 } from "@/shared/lib";
-import { Button, Field, FileDropzone } from "@/shared/ui";
+import { Button, Field, FieldError, FieldLabel, FileDropzone } from "@/shared/ui";
 
 const REQUIRED_COLUMNS = ["name", "email"];
 
@@ -58,10 +58,11 @@ export function UploadSection() {
   };
 
   return (
-    <section className="mt-10 flex flex-col gap-6">
-      <h2 className="text-xl font-bold">{t("pages.demo.upload.title")}</h2>
+    <section className="flex flex-col gap-6">
+      <h3 className="text-lg font-semibold">{t("pages.demo.upload.title")}</h3>
 
-      <Field label={t("pages.demo.upload.imageLabel")} htmlFor="demo-images">
+      <Field>
+        <FieldLabel htmlFor="demo-images">{t("pages.demo.upload.imageLabel")}</FieldLabel>
         <FileDropzone
           id="demo-images"
           accept="image/*"
@@ -72,24 +73,28 @@ export function UploadSection() {
         />
       </Field>
       {compressed.length > 0 && (
-        <ul className="text-sm text-foreground/70">
+        <ul className="text-sm text-muted-foreground">
           {compressed.map((line) => (
             <li key={line}>{line}</li>
           ))}
         </ul>
       )}
 
-      <Field
-        label={t("pages.demo.upload.sheetLabel", { columns: REQUIRED_COLUMNS.join(", ") })}
-        htmlFor="demo-sheet"
-        error={sheetResult && !sheetResult.ok ? sheetResult.text : null}
-      >
+      <Field data-invalid={sheetResult?.ok === false}>
+        <FieldLabel htmlFor="demo-sheet">
+          {t("pages.demo.upload.sheetLabel", { columns: REQUIRED_COLUMNS.join(", ") })}
+        </FieldLabel>
         <FileDropzone
           id="demo-sheet"
           accept=".csv,.xlsx"
           maxSize={5 * 1024 * 1024}
           onFiles={onSheet}
+          aria-invalid={sheetResult?.ok === false}
+          aria-describedby={sheetResult?.ok === false ? "demo-sheet-error" : undefined}
         />
+        {sheetResult?.ok === false && (
+          <FieldError id="demo-sheet-error">{sheetResult.text}</FieldError>
+        )}
       </Field>
       {sheetResult?.ok && <p className="text-sm text-success">{sheetResult.text}</p>}
 

@@ -57,9 +57,13 @@ primitives, read `docs/platform.md`.
 - **i18n**: `const { t } = useTranslation()`; add keys to `locales/zh-TW.json` first (it is the type source).
   zod schema messages are i18n keys.
 - **Errors**: `reportError(error, context?)`; `<ErrorBoundary>` already wraps the router.
-- **Forms**: `useZodForm(schema)` + `<Field label htmlFor error={errors.x}>` (translates the zod key).
-- **Feedback UI** (`shared/ui`): `await confirmDialog({ message, danger })`, `toast.success/error(msg)`,
-  `<EmptyState>`, `<ErrorState onRetry>`, `<Spinner>`, `<PageHeader>`, `<Badge tone>`. Never `window.confirm`/`alert`.
+- **UI**: shadcn/ui (radix-nova) in `src/shared/ui`, always imported from `@/shared/ui`. Add with
+  `bunx --bun shadcn@latest add <name>`, then export it from `shared/ui/index.ts`; see `docs/platform.md` for the
+  CLI quirks and the template's customizations. Every component is showcased on `/demo` (`pages/demo/ui/gallery/`).
+- **Forms**: `useZodForm(schema)` + shadcn `Field` / `FieldLabel` / `FieldError errors={[errors.x]}` (FieldError
+  translates the zod i18n key); controls get `aria-invalid`. With `register()` prefer `NativeSelect`.
+- **Feedback UI** (`shared/ui`): `await confirmDialog({ message, danger })`, `toast.success/error(msg)` (sonner),
+  `<Empty>`, `<ErrorState onRetry>`, `<Spinner>`, `<PageHeader>`, `<Badge variant>`. Never `window.confirm`/`alert`.
 - **Files**: `<FileDropzone>`; `compressImage()`, `validateColumns()` (CSV/XLSX, never the npm `xlsx` package),
   `downloadBlob()` from `shared/lib`; `apiPost(path, formData)`, `apiUpload()` (progress), `apiDownload()` from `shared/api`.
 - **Async/realtime** (`shared/api`): `useJobPolling(jobId)` for `GET /jobs/{id}`; `useEventStream({ path, invalidate })`

@@ -129,14 +129,14 @@ export function FileDropzone({
           "focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50",
           dragging
             ? "border-primary bg-primary/5"
-            : "border-foreground/20 hover:border-foreground/40 hover:bg-foreground/5",
+            : "border-input hover:border-primary/40 hover:bg-accent",
           errors.length > 0 && !dragging && "border-destructive/50",
         )}
       >
-        <Upload aria-hidden className="size-6 text-foreground/50" />
+        <Upload aria-hidden className="size-6 text-muted-foreground" />
         <span className="text-sm font-medium">{t("common.upload.prompt")}</span>
         {hintContent && (
-          <span id={hintId} className="text-xs text-foreground/60">
+          <span id={hintId} className="text-xs text-muted-foreground">
             {hintContent}
           </span>
         )}
