@@ -1,4 +1,4 @@
-.PHONY: help up down logs migrate createsuperuser dev gen-api check check-backend check-frontend deploy-frontend
+.PHONY: help up down logs migrate createsuperuser dev gen-api check check-backend check-frontend deploy-frontend pre-commit-install pre-commit
 
 help:
 	@echo "=========================================="
@@ -18,6 +18,8 @@ help:
 	@echo "  make check           - 前後端全部檢查"
 	@echo "  make check-backend   - 後端 format+lint+mypy+test"
 	@echo "  make check-frontend  - 前端 biome+fsd+tsc+vitest"
+	@echo "  make pre-commit-install - 安裝 git pre-commit hook (前後端共用根目錄設定)"
+	@echo "  make pre-commit      - 對所有檔案跑一次 pre-commit hook"
 	@echo ""
 	@echo "部署:"
 	@echo "  make deploy-frontend - 前端 build 並部署到 S3 + CloudFront"
@@ -55,6 +57,13 @@ check-frontend:
 	cd frontend && bun run lint:ci && bun run lint:fsd && bun run type-check && bun run test
 
 check: check-backend check-frontend
+
+# hook 設定在根目錄，pre-commit 套件裝在 backend 的 venv
+pre-commit-install:
+	uv run --project backend pre-commit install
+
+pre-commit:
+	uv run --project backend pre-commit run --all-files
 
 deploy-frontend:
 	./scripts/deploy-frontend.sh
